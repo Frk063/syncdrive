@@ -71,22 +71,21 @@
             l.scrollTop = l.scrollHeight;
         }
 
-        // --- GOOGLE PICKER (L'EXPLORATEUR VISUEL) ---
+       // --- GOOGLE PICKER (SÉLECTEUR DE DOSSIER) ---
         function createPicker() {
-            const view = new google.picker.DocsView(google.picker.ViewId.FOLDERS)
-                .setSelectableMimeTypes('application/vnd.google-apps.folder')
-                .setIncludeFolders(true);
+            const view = new google.picker.DocsView(google.picker.ViewId.FOLDERS);
+            view.setIncludeFolders(true);
+            view.setMimeTypes('application/vnd.google-apps.folder');
 
             const picker = new google.picker.PickerBuilder()
                 .addView(view)
                 .setOAuthToken(accessToken)
                 .setDeveloperKey(API_KEY)
                 .setCallback(pickerCallback)
-                .setTitle('Sélectionnez votre dossier de sauvegarde Drive')
+                .setTitle('Sélectionnez le dossier Drive à synchroniser')
                 .build();
             picker.setVisible(true);
         }
-
         async function pickerCallback(data) {
             if (data.action === google.picker.Action.PICKED) {
                 const doc = data.docs[0];
