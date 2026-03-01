@@ -87,15 +87,17 @@
             picker.setVisible(true);
         }
         async function pickerCallback(data) {
+            console.log("Réponse Picker :", data.action); // Pour voir dans F12
             if (data.action === google.picker.Action.PICKED) {
                 const doc = data.docs[0];
                 targetFolderId = doc.id;
                 document.getElementById('targetInfo').innerText = `🎯 Cible : ${doc.name}`;
                 log(`Dossier Cloud ciblé : ${doc.name}`, "SUCCESS");
                 await scanDriveFolder();
+            } else if (data.action === google.picker.Action.CANCEL) {
+                log("Sélection annulée.", "INFO");
             }
         }
-
         // --- SCAN DRIVE FILTRÉ PAR DOSSIER ---
         async function scanDriveFolder() {
             log("Scan du dossier Cloud en cours...", "PROCESS");
