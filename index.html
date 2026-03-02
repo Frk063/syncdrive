@@ -72,21 +72,30 @@
         }
 
        // --- GOOGLE PICKER (SÉLECTEUR DE DOSSIER) ---
+        // --- GOOGLE PICKER (VERSION BLINDÉE) ---
         function createPicker() {
-            const view = new google.picker.DocsView(google.picker.ViewId.FOLDERS);
-            view.setIncludeFolders(true);
-            view.setMimeTypes('application/vnd.google-apps.folder');
+            try {
+                const origin = window.location.origin;
+                log("Tentative d'ouverture du sélecteur...", "PROCESS");
 
-            const picker = new google.picker.PickerBuilder()
-                .addView(view)
-                .setOAuthToken(accessToken)
-                .setDeveloperKey(API_KEY)
-                .setCallback(pickerCallback)
-                .setTitle('Sélectionnez le dossier Drive à synchroniser')
-                .build();
-            picker.setVisible(true);
-        }
-        async function pickerCallback(data) {
+                const view = new google.picker.DocsView(google.picker.ViewId.FOLDERS)
+                    .setIncludeFolders(true)
+                    .setMimeTypes('application/vnd.google-apps.folder');
+
+                const picker = new google.picker.PickerBuilder()
+                    .addView(view)
+                    .setOAuthToken(accessToken)
+                    .setDeveloperKey(API_KEY)
+                    .setOrigin(origin) 
+                    .setCallback(pickerCallback)
+                    .setTitle('Sélectionnez votre dossier Drive')
+                    .build();
+                picker.setVisible(true);
+            } catch (err) {
+                log("Erreur de création du Picker: " + err.message, "ERROR");
+            }
+        }        
+                async function pickerCallback(data) {
             console.log("Réponse Picker :", data.action); // Pour voir dans F12
             if (data.action === google.picker.Action.PICKED) {
                 const doc = data.docs[0];
