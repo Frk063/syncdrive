@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <title>SyncDrive Pro v1.1.7 - Stable</title>
+    <title>SyncDrive Pro v1.1.8 - Stable</title>
     <style>
         :root { --primary: #2c3e50; --error: #c0392b; --success: #27ae60; --warning: #f39c12; }
         body { font-family: 'Segoe UI', sans-serif; margin: 20px; background: #f4f7f6; color: var(--primary); }
@@ -21,7 +21,7 @@
 </head>
 <body>
 
-    <h2>📦 SyncDrive Pro <small>v1.1.7</small></h2>
+    <h2>📦 SyncDrive Pro <small>v1.1.8</small></h2>
     
     <div id="setup">
         <strong>1. Connexion & Sélection :</strong><br>
@@ -54,8 +54,8 @@
     <script async defer src="https://accounts.google.com/gsi/client" onload="gisLoaded()"></script>
 
     <script>
-        // --- CONFIGURATION INTÉGRÉE ---
-        const CLIENT_ID = 'TON_ID_CLIENT_ICI.apps.googleusercontent.com'; 
+        // --- CONFIGURATION INTÉGRÉE (VÉRIFIÉE) ---
+        const CLIENT_ID = '944621175150-srl9ukm3ntq8rtg8629cm1fdo60tpe3v.apps.googleusercontent.com'; 
         const API_KEY = 'AIzaSyAN0QLhBIRQ_xxbU8tv0kix85DA3lY9nU4'; 
         const SCOPES = 'https://www.googleapis.com/auth/drive.readonly';
         
@@ -152,6 +152,10 @@
                 client_id: CLIENT_ID,
                 scope: SCOPES,
                 callback: (res) => {
+                    if (res.error) {
+                        log("Erreur Auth: " + res.error, "ERROR");
+                        return;
+                    }
                     accessToken = res.access_token;
                     document.getElementById('btnPicker').disabled = false;
                     log("Connexion OK.", "SUCCESS");
