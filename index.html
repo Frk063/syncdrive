@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <title>SyncDrive Pro v1.1.0 - Sécurisé</title>
+    <title>SyncDrive Pro v1.1.7 - Stable</title>
     <style>
         :root { --primary: #2c3e50; --error: #c0392b; --success: #27ae60; --warning: #f39c12; }
         body { font-family: 'Segoe UI', sans-serif; margin: 20px; background: #f4f7f6; color: var(--primary); }
@@ -21,30 +21,30 @@
 </head>
 <body>
 
-    <h2>📦 SyncDrive Pro <small>v1.1.0 - Sélecteur de Dossiers</small></h2>
+    <h2>📦 SyncDrive Pro <small>v1.1.7</small></h2>
     
     <div id="setup">
         <strong>1. Connexion & Sélection :</strong><br>
         <button class="btn-blue" onclick="handleAuthClick()">🔑 1. Connexion Google</button>
         <button id="btnPicker" class="btn-blue" onclick="createPicker()" disabled>📁 2. Choisir Dossier Drive</button>
-        <button class="btn-blue" onclick="initLocalScan()">💾 3. Choisir Dossier Local (Test_Sync)</button>
+        <button class="btn-blue" onclick="initLocalScan()">💾 3. Choisir Dossier Local</button>
         <span id="targetInfo" style="margin-left:10px; color:var(--success); font-weight:bold;"></span>
     </div>
 
     <div id="controls">
-        <strong>2. Analyse des écarts :</strong><br>
-        <button class="btn-orange" onclick="runSimulation()">📋 Lancer la Simulation (Audit)</button>
+        <strong>2. Analyse :</strong><br>
+        <button class="btn-orange" onclick="runSimulation()">📋 Lancer la Simulation</button>
         <span id="diffStats" style="margin-left:15px; font-style: italic;"></span>
     </div>
 
     <div class="panes-container">
         <div class="pane">
-            <div class="pane-header">☁️ CLOUD (Dossier choisi)</div>
-            <div id="pane-drive" class="pane-content">En attente de sélection...</div>
+            <div class="pane-header">☁️ CLOUD</div>
+            <div id="pane-drive" class="pane-content">En attente...</div>
         </div>
         <div class="pane">
-            <div class="pane-header">💾 LOCAL (Dossier choisi)</div>
-            <div id="pane-local" class="pane-content">En attente de sélection...</div>
+            <div class="pane-header">💾 LOCAL</div>
+            <div id="pane-local" class="pane-content">En attente...</div>
         </div>
     </div>
 
@@ -55,7 +55,7 @@
 
     <script>
         // --- CONFIGURATION INTÉGRÉE ---
-        const CLIENT_ID = '944621175150-srl9ukm3ntq8rtg8629cm1fdo60tpe3v.apps.googleusercontent.com'; 
+        const CLIENT_ID = 'TON_ID_CLIENT_ICI.apps.googleusercontent.com'; 
         const API_KEY = 'AIzaSyAN0QLhBIRQ_xxbU8tv0kix85DA3lY9nU4'; 
         const SCOPES = 'https://www.googleapis.com/auth/drive.readonly';
         
@@ -71,45 +71,36 @@
             l.scrollTop = l.scrollHeight;
         }
 
-       // --- GOOGLE PICKER (SÉLECTEUR DE DOSSIER) ---
-        // --- GOOGLE PICKER (VERSION BLINDÉE) ---
+        // --- GOOGLE PICKER ---
         function createPicker() {
-            try {
-                const origin = window.location.origin;
-                log("Tentative d'ouverture du sélecteur...", "PROCESS");
+            const origin = window.location.origin;
+            const view = new google.picker.DocsView(google.picker.ViewId.FOLDERS)
+                .setIncludeFolders(true)
+                .setMimeTypes('application/vnd.google-apps.folder');
 
-                const view = new google.picker.DocsView(google.picker.ViewId.FOLDERS)
-                    .setIncludeFolders(true)
-                    .setMimeTypes('application/vnd.google-apps.folder');
+            const picker = new google.picker.PickerBuilder()
+                .addView(view)
+                .setOAuthToken(accessToken)
+                .setDeveloperKey(API_KEY)
+                .setOrigin(origin)
+                .setCallback(pickerCallback)
+                .setTitle('Sélectionnez votre dossier Drive')
+                .build();
+            picker.setVisible(true);
+        }
 
-                const picker = new google.picker.PickerBuilder()
-                    .addView(view)
-                    .setOAuthToken(accessToken)
-                    .setDeveloperKey(API_KEY)
-                    .setOrigin(origin) 
-                    .setCallback(pickerCallback)
-                    .setTitle('Sélectionnez votre dossier Drive')
-                    .build();
-                picker.setVisible(true);
-            } catch (err) {
-                log("Erreur de création du Picker: " + err.message, "ERROR");
-            }
-        }        
-                async function pickerCallback(data) {
-            console.log("Réponse Picker :", data.action); // Pour voir dans F12
+        async function pickerCallback(data) {
             if (data.action === google.picker.Action.PICKED) {
                 const doc = data.docs[0];
                 targetFolderId = doc.id;
                 document.getElementById('targetInfo').innerText = `🎯 Cible : ${doc.name}`;
                 log(`Dossier Cloud ciblé : ${doc.name}`, "SUCCESS");
                 await scanDriveFolder();
-            } else if (data.action === google.picker.Action.CANCEL) {
-                log("Sélection annulée.", "INFO");
             }
         }
-        // --- SCAN DRIVE FILTRÉ PAR DOSSIER ---
+
         async function scanDriveFolder() {
-            log("Scan du dossier Cloud en cours...", "PROCESS");
+            log("Scan Cloud en cours...", "PROCESS");
             driveFiles = [];
             try {
                 const res = await gapi.client.drive.files.list({
@@ -117,19 +108,16 @@
                     fields: 'files(id, name, size, mimeType)'
                 });
                 res.result.files.forEach(f => {
-                    // On ne liste que les fichiers (pas les sous-dossiers pour ce test)
                     if(f.mimeType !== 'application/vnd.google-apps.folder') {
                         driveFiles.push({ name: f.name, size: parseInt(f.size) || 0 });
                     }
                 });
                 renderPane('pane-drive', driveFiles);
-                log(`${driveFiles.length} fichiers trouvés dans le dossier sélectionné.`, "SUCCESS");
+                log(`${driveFiles.length} fichiers trouvés.`, "SUCCESS");
             } catch (err) { log("Erreur Scan: " + err.message, "ERROR"); }
         }
 
-        // --- SCAN LOCAL (DISQUE EXTERNE) ---
         async function initLocalScan() {
-            log("Ouverture du sélecteur local...", "PROCESS");
             try {
                 const handle = await window.showDirectoryPicker();
                 localFiles = [];
@@ -140,52 +128,43 @@
                     }
                 }
                 renderPane('pane-local', localFiles);
-                log(`${localFiles.length} fichiers trouvés sur le disque local.`, "SUCCESS");
-            } catch (err) { log("Erreur Disque: " + err.message, "ERROR"); }
+                log(`${localFiles.length} fichiers locaux trouvés.`, "SUCCESS");
+            } catch (err) { log("Erreur Local: " + err.message, "ERROR"); }
         }
 
         function renderPane(id, files) {
             const container = document.getElementById(id);
-            if(files.length === 0) { container.innerHTML = "Dossier vide."; return; }
-            container.innerHTML = files.map(f => 
-                `<div style="border-bottom:1px solid #eee; padding:3px;">📄 ${f.name} <span class="status-tag">${(f.size/1024).toFixed(1)} Ko</span></div>`
-            ).join('');
+            container.innerHTML = files.map(f => `<div style="border-bottom:1px solid #eee;">📄 ${f.name}</div>`).join('');
         }
 
-        // --- INITIALISATION DES API ---
         function gapiLoaded() {
             gapi.load('client:picker', async () => {
                 await gapi.client.init({
                     apiKey: API_KEY,
                     discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'],
                 });
-                log("Moteur Google chargé.", "SYSTEM");
+                log("Moteur Google prêt.", "SYSTEM");
             });
         }
+
         function gisLoaded() {
             tokenClient = google.accounts.oauth2.initTokenClient({
                 client_id: CLIENT_ID,
                 scope: SCOPES,
                 callback: (res) => {
-                    if (res.error) { log("Erreur Auth: " + res.error, "ERROR"); return; }
                     accessToken = res.access_token;
                     document.getElementById('btnPicker').disabled = false;
-                    log("Connexion établie. Choisissez maintenant un dossier.", "SUCCESS");
+                    log("Connexion OK.", "SUCCESS");
                 }
             });
         }
+
         function handleAuthClick() { tokenClient.requestAccessToken(); }
 
-        // --- SIMULATION (COMPARaison) ---
         function runSimulation() {
-            if(driveFiles.length === 0 && localFiles.length === 0) {
-                log("Sélectionnez d'abord les deux dossiers !", "ERROR");
-                return;
-            }
-            log("Lancement de l'audit de comparaison...", "PROCESS");
             const toDownload = driveFiles.filter(df => !localFiles.find(lf => lf.name === df.name));
-            document.getElementById('diffStats').innerText = `${toDownload.length} fichiers manquants localement.`;
-            log(`Résultat : ${toDownload.length} fichiers du Cloud ne sont pas sur ton disque local.`, "WARNING");
+            document.getElementById('diffStats').innerText = `${toDownload.length} manquants localement.`;
+            log(`Simulation terminée : ${toDownload.length} fichiers à synchroniser.`, "WARNING");
         }
     </script>
 </body>
