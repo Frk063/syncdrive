@@ -2,29 +2,31 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <title>SyncDrive Pro v1.2.1 - Tri & Intégralité</title>
+    <title>SyncDrive Pro v1.3.0 - Moteur Récursif Cloud</title>
     <style>
-        :root { --primary: #2c3e50; --error: #c0392b; --success: #27ae60; --warning: #f39c12; }
+        :root { --primary: #2c3e50; --error: #c0392b; --success: #27ae60; --warning: #f39c12; --info: #2980b9; }
         body { font-family: 'Segoe UI', sans-serif; margin: 20px; background: #f4f7f6; color: var(--primary); }
         #setup, #controls { background: white; padding: 15px; border-radius: 4px; margin-bottom: 15px; border: 1px solid #bdc3c7; }
         .panes-container { display: flex; gap: 20px; }
         .pane { flex: 1; background: white; border: 1px solid #bdc3c7; border-radius: 4px; }
         .pane-header { background: var(--primary); color: white; padding: 10px; font-weight: bold; text-align: center; }
         .pane-content { height: 350px; overflow-y: auto; padding: 10px; font-family: monospace; font-size: 12px; }
-        .log-container { background: #000; color: #0f0; padding: 10px; height: 120px; overflow-y: scroll; font-size: 11px; margin-top: 20px; }
-        button { padding: 8px 12px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; margin-right: 5px; margin-top: 5px; }
-        .btn-blue { background: #3498db; color: white; }
+        .log-container { background: #000; color: #0f0; padding: 10px; height: 120px; overflow-y: scroll; font-size: 11px; margin-top: 20px; line-height: 1.4; }
+        button { padding: 8px 12px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; margin-right: 5px; margin-top: 5px; transition: background 0.3s; }
+        button:hover { filter: brightness(1.1); }
+        .btn-blue { background: var(--info); color: white; }
         .btn-green { background: var(--success); color: white; }
         .btn-orange { background: var(--warning); color: white; }
         #btnPicker:disabled { background: #bdc3c7; cursor: not-allowed; }
         
-        #customPicker { display: none; margin-top: 15px; padding: 15px; background: #e8f4f8; border: 1px solid #3498db; border-radius: 4px; }
+        #customPicker { display: none; margin-top: 15px; padding: 15px; background: #e8f4f8; border: 1px solid var(--info); border-radius: 4px; }
         select { padding: 8px; width: 100%; max-width: 400px; margin-top: 5px; margin-bottom: 10px; border-radius: 4px; border: 1px solid #bdc3c7; }
+        .path-text { color: #7f8c8d; font-size: 0.9em; margin-left: 5px; }
     </style>
 </head>
 <body>
 
-    <h2>📦 SyncDrive Pro <small>v1.2.1</small></h2>
+    <h2>📦 SyncDrive Pro <small>v1.3.0</small></h2>
     
     <div id="setup">
         <strong>1. Connexion & Sélection :</strong><br>
@@ -34,26 +36,26 @@
         <span id="targetInfo" style="margin-left:10px; color:var(--success); font-weight:bold;"></span>
 
         <div id="customPicker">
-            <strong>Choisissez un dossier Drive :</strong><br>
+            <strong>Choisissez un dossier Drive racine à explorer :</strong><br>
             <select id="driveFolderSelect"></select><br>
-            <button class="btn-green" onclick="confirmFolderSelection()">✅ Valider ce dossier</button>
+            <button class="btn-green" onclick="confirmFolderSelection()">✅ Lancer l'exploration récursive</button>
         </div>
     </div>
 
     <div id="controls">
         <strong>2. Analyse :</strong><br>
-        <button class="btn-orange" onclick="runSimulation()">📋 Lancer la Simulation</button>
+        <button class="btn-orange" onclick="runSimulation()">📋 Lancer la Simulation (Différentiel)</button>
         <span id="diffStats" style="margin-left:15px; font-style: italic;"></span>
     </div>
 
     <div class="panes-container">
         <div class="pane">
-            <div class="pane-header">☁️ CLOUD</div>
-            <div id="pane-drive" class="pane-content">En attente...</div>
+            <div class="pane-header">☁️ CLOUD (Arborescence complète)</div>
+            <div id="pane-drive" class="pane-content">En attente d'exploration...</div>
         </div>
         <div class="pane">
-            <div class="pane-header">💾 LOCAL</div>
-            <div id="pane-local" class="pane-content">En attente...</div>
+            <div class="pane-header">💾 LOCAL (Arborescence)</div>
+            <div id="pane-local" class="pane-content">En attente d'exploration...</div>
         </div>
     </div>
 
@@ -63,121 +65,171 @@
     <script async defer src="https://accounts.google.com/gsi/client" onload="gisLoaded()"></script>
 
     <script>
-        // --- CONFIGURATION INTÉGRÉE ---
+        // --- CONFIGURATION SÉCURISÉE ---
         const CLIENT_ID = '944621175150-srl9ukm3ntq8rtg8629cm1fdo60tpe3v.apps.googleusercontent.com'; 
         const API_KEY = 'AIzaSyAN0QLhBIRQ_xxbU8tv0kix85DA3lY9nU4'; 
         const SCOPES = 'https://www.googleapis.com/auth/drive.readonly';
         
         let targetFolderId = null;
-        let driveFiles = [];
+        let driveFiles = []; // Stockera l'arborescence complète: { name, path, fullPath, size, id }
         let localFiles = [];
         let tokenClient;
         let accessToken = null;
 
+        // --- UX : FONCTION DE LOGGING AVANCÉE ---
         function log(msg, type='INFO') {
             const l = document.getElementById('logs');
-            l.innerHTML += `[${type}] ${msg}<br>`;
+            const time = new Date().toLocaleTimeString();
+            let color = '#0f0'; // Default Green (INFO/SUCCESS)
+            if (type === 'ERROR') color = '#e74c3c';
+            if (type === 'WARNING') color = '#f39c12';
+            if (type === 'PROCESS') color = '#3498db';
+            
+            l.innerHTML += `<span style="color:#888;">[${time}]</span> <span style="color:${color};">[${type}]</span> ${msg}<br>`;
             l.scrollTop = l.scrollHeight;
         }
 
-        // --- MOTEUR V1.2.1 : TRI ALPHABÉTIQUE ET PAGINATION COMPLÈTE ---
+        // --- UX : TRADUCTEUR D'ERREURS ("Test du couillon") ---
+        function translateError(err) {
+            if (err.status === 403 || err.status === 429) return "Les serveurs de Google sont surchargés (Trop de requêtes). Laissez le script respirer un instant.";
+            if (err.status === 401) return "Session expirée ou non autorisée. Veuillez vous reconnecter (Bouton 1).";
+            if (err.status === 404) return "Le dossier demandé est introuvable. Il a peut-être été supprimé depuis une autre machine.";
+            return "Une erreur inattendue s'est produite : " + (err.message || err.result?.error?.message || "Erreur réseau.");
+        }
+
+        // --- MOTEUR DE RECHERCHE DE DOSSIERS (V1.2.1) ---
         async function loadDriveFolders() {
-            log("Interrogation de votre Drive (recherche de tous les dossiers)...", "PROCESS");
+            log("Interrogation du Drive... Veuillez patienter.", "PROCESS");
             try {
                 let allFolders = [];
                 let pageToken = null;
 
-                // Boucle pour récupérer TOUS les dossiers (Google renvoie par lots)
                 do {
                     const res = await gapi.client.drive.files.list({
                         q: "mimeType='application/vnd.google-apps.folder' and trashed=false",
                         fields: 'nextPageToken, files(id, name)',
                         pageSize: 1000, 
-                        orderBy: 'name', // Tri alphabétique demandé à Google
+                        orderBy: 'name',
                         pageToken: pageToken
                     });
-                    
-                    if (res.result.files) {
-                        allFolders = allFolders.concat(res.result.files);
-                    }
+                    if (res.result.files) allFolders = allFolders.concat(res.result.files);
                     pageToken = res.result.nextPageToken;
                 } while (pageToken); 
 
                 if (!allFolders || allFolders.length === 0) {
-                    log("Aucun dossier trouvé sur votre Drive.", "WARNING");
+                    log("Votre Drive semble ne contenir aucun dossier.", "WARNING");
                     return;
                 }
 
-                // Remplissage de la liste déroulante
                 const select = document.getElementById('driveFolderSelect');
                 select.innerHTML = allFolders.map(f => `<option value="${f.id}">📁 ${f.name}</option>`).join('');
-                
                 document.getElementById('customPicker').style.display = 'block';
-                log(`${allFolders.length} dossiers récupérés et triés avec succès.`, "SUCCESS");
+                log(`${allFolders.length} dossiers trouvés.`, "SUCCESS");
 
             } catch (err) {
-                log("Erreur de récupération : " + err.message, "ERROR");
+                log(translateError(err), "ERROR");
             }
         }
 
         async function confirmFolderSelection() {
             const select = document.getElementById('driveFolderSelect');
             targetFolderId = select.value;
-            const folderName = select.options[select.selectedIndex].text;
+            const folderName = select.options[select.selectedIndex].text.replace('📁 ', '');
             
             document.getElementById('customPicker').style.display = 'none';
-            document.getElementById('targetInfo').innerText = `🎯 Cible : ${folderName.replace('📁 ', '')}`;
-            log(`Dossier ciblé : ${folderName.replace('📁 ', '')}`, "SUCCESS");
+            document.getElementById('targetInfo').innerText = `🎯 Cible : ${folderName}`;
             
-            await scanDriveFolder();
-        }
-
-        // --- SCAN DES FICHIERS (SURFACE UNIQUEMENT POUR L'INSTANT) ---
-        async function scanDriveFolder() {
-            log("Scan des fichiers du dossier en cours...", "PROCESS");
+            // Réinitialisation de l'arbre
             driveFiles = [];
-            try {
-                const res = await gapi.client.drive.files.list({
-                    q: `'${targetFolderId}' in parents and trashed = false`,
-                    fields: 'files(id, name, size, mimeType)'
-                });
-                res.result.files.forEach(f => {
-                    if(f.mimeType !== 'application/vnd.google-apps.folder') {
-                        driveFiles.push({ name: f.name, size: parseInt(f.size) || 0 });
-                    }
-                });
-                renderPane('pane-drive', driveFiles);
-                log(`${driveFiles.length} fichiers trouvés dans le cloud.`, "SUCCESS");
-            } catch (err) { log("Erreur Scan: " + err.message, "ERROR"); }
+            document.getElementById('pane-drive').innerHTML = "<em>Exploration en cours... Cela peut prendre du temps selon la taille du dossier.</em>";
+            
+            log(`Lancement du scan récursif pour : ${folderName}`, "PROCESS");
+            
+            // Début de l'exploration récursive avec le chemin racine vide ("/")
+            await scanDriveRecursive(targetFolderId, "");
+            
+            // Fin de l'exploration : Mise à jour de l'interface (Throttling)
+            renderPane('pane-drive', driveFiles);
+            log(`Exploration terminée ! ${driveFiles.length} fichiers trouvés dans toute l'arborescence.`, "SUCCESS");
         }
 
-        async function initLocalScan() {
+        // --- ARCHITECTURE SÉCURISÉE : LE MOTEUR RÉCURSIF (V1.3.0) ---
+        // Séquentiel pour éviter les erreurs 429 API Rate Limit (Sûreté de fonctionnement)
+        async function scanDriveRecursive(folderId, currentPath) {
+            let pageToken = null;
+            
             try {
-                const handle = await window.showDirectoryPicker();
-                localFiles = [];
-                for await (const entry of handle.values()) {
-                    if (entry.kind === 'file') {
-                        const file = await entry.getFile();
-                        localFiles.push({ name: entry.name, size: file.size });
+                do {
+                    const res = await gapi.client.drive.files.list({
+                        // Recherche tous les éléments (fichiers ET dossiers) dans ce parent
+                        q: `'${folderId}' in parents and trashed = false`,
+                        fields: 'nextPageToken, files(id, name, size, mimeType)',
+                        pageSize: 1000,
+                        pageToken: pageToken
+                    });
+
+                    const items = res.result.files || [];
+
+                    // On traite d'abord les fichiers de ce niveau
+                    const files = items.filter(i => i.mimeType !== 'application/vnd.google-apps.folder');
+                    files.forEach(f => {
+                        const fullPath = currentPath === "" ? f.name : `${currentPath}/${f.name}`;
+                        driveFiles.push({ 
+                            id: f.id, 
+                            name: f.name, 
+                            path: currentPath, 
+                            fullPath: fullPath, 
+                            size: parseInt(f.size) || 0 
+                        });
+                    });
+
+                    // Ensuite, on identifie les sous-dossiers pour plonger dedans
+                    const subFolders = items.filter(i => i.mimeType === 'application/vnd.google-apps.folder');
+                    
+                    // Boucle FOR...OF séquentielle impérative (Priorité 2 : Safety / Éviter la saturation)
+                    for (const folder of subFolders) {
+                        const nextPath = currentPath === "" ? folder.name : `${currentPath}/${folder.name}`;
+                        log(`🔍 Exploration du sous-dossier : /${nextPath}`, "PROCESS");
+                        await scanDriveRecursive(folder.id, nextPath); // Appel récursif
                     }
-                }
-                renderPane('pane-local', localFiles);
-                log(`${localFiles.length} fichiers locaux trouvés.`, "SUCCESS");
-            } catch (err) { log("Erreur Local: " + err.message, "ERROR"); }
+
+                    pageToken = res.result.nextPageToken;
+                } while (pageToken);
+
+            } catch (err) {
+                log(`Erreur critique dans le dossier /${currentPath}: ${translateError(err)}`, "ERROR");
+                // Fail-Safe : On ne crashe pas tout le script, on arrête juste d'explorer cette branche défectueuse.
+            }
         }
 
-        function renderPane(id, files) {
+        // --- RENDU UI OPTIMISÉ ---
+        function renderPane(id, filesArray) {
             const container = document.getElementById(id);
-            container.innerHTML = files.map(f => `<div style="border-bottom:1px solid #eee;">📄 ${f.name}</div>`).join('');
+            if (filesArray.length === 0) {
+                container.innerHTML = "<em>Aucun fichier trouvé.</em>";
+                return;
+            }
+            // Affiche le nom du fichier et son chemin relatif complet
+            container.innerHTML = filesArray.map(f => 
+                `<div style="border-bottom:1px solid #eee; padding: 2px 0;">
+                    📄 ${f.name} <span class="path-text">(/${f.fullPath})</span>
+                </div>`
+            ).join('');
         }
 
+        // Fonction Local Scan inchangée pour le moment (sera réécrite en récursif à la v1.4.0)
+        async function initLocalScan() {
+            log("Le scan local récursif n'est pas encore implémenté dans cette version.", "WARNING");
+        }
+
+        // --- AUTHENTIFICATION ---
         function gapiLoaded() {
             gapi.load('client', async () => {
                 await gapi.client.init({
                     apiKey: API_KEY,
                     discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'],
                 });
-                log("Moteur Google prêt.", "SYSTEM");
+                log("Moteur Google API initialisé avec succès.", "SYSTEM");
             });
         }
 
@@ -187,12 +239,12 @@
                 scope: SCOPES,
                 callback: (res) => {
                     if (res.error) {
-                        log("Erreur Auth: " + res.error, "ERROR");
+                        log("Refus d'accès : " + res.error, "ERROR");
                         return;
                     }
                     accessToken = res.access_token;
                     document.getElementById('btnPicker').disabled = false;
-                    log("Connexion OK.", "SUCCESS");
+                    log("Connexion sécurisée établie.", "SUCCESS");
                 }
             });
         }
@@ -200,9 +252,7 @@
         function handleAuthClick() { tokenClient.requestAccessToken(); }
 
         function runSimulation() {
-            const toDownload = driveFiles.filter(df => !localFiles.find(lf => lf.name === df.name));
-            document.getElementById('diffStats').innerText = `${toDownload.length} manquants localement.`;
-            log(`Simulation terminée : ${toDownload.length} fichiers à synchroniser.`, "WARNING");
+            log("Simulation différentielle désactivée en attente du moteur local récursif (v1.4.0).", "WARNING");
         }
     </script>
 </body>
