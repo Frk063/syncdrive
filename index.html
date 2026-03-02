@@ -70,10 +70,13 @@
             l.innerHTML += `[${type}] ${msg}<br>`;
             l.scrollTop = l.scrollHeight;
         }
-
-        // --- GOOGLE PICKER ---
+        // --- GOOGLE PICKER (VERSION BYPASS COOP) ---
         function createPicker() {
-            const origin = window.location.origin;
+            // On calcule l'origine de manière ultra-précise pour le navigateur
+            const origin = window.location.protocol + "//" + window.location.host;
+            
+            log("Ouverture du tunnel sécurisé...", "PROCESS");
+
             const view = new google.picker.DocsView(google.picker.ViewId.FOLDERS)
                 .setIncludeFolders(true)
                 .setMimeTypes('application/vnd.google-apps.folder');
@@ -82,12 +85,14 @@
                 .addView(view)
                 .setOAuthToken(accessToken)
                 .setDeveloperKey(API_KEY)
-                .setOrigin(origin)
+                .setOrigin(origin) 
                 .setCallback(pickerCallback)
-                .setTitle('Sélectionnez votre dossier Drive')
+                // On ajoute ces deux options pour stabiliser la fenêtre sur ChromeOS
+                .enableFeature(google.picker.Feature.SUPPORT_DRIVES)
+                .enableFeature(google.picker.Feature.NAV_HIDDEN)
                 .build();
             picker.setVisible(true);
-        }
+        }        
 
         async function pickerCallback(data) {
             if (data.action === google.picker.Action.PICKED) {
