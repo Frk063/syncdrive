@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <title>SyncDrive Pro v1.2.0 - Plan B</title>
+    <title>SyncDrive Pro v1.2.1 - Tri & Intégralité</title>
     <style>
         :root { --primary: #2c3e50; --error: #c0392b; --success: #27ae60; --warning: #f39c12; }
         body { font-family: 'Segoe UI', sans-serif; margin: 20px; background: #f4f7f6; color: var(--primary); }
@@ -18,14 +18,13 @@
         .btn-orange { background: var(--warning); color: white; }
         #btnPicker:disabled { background: #bdc3c7; cursor: not-allowed; }
         
-        /* Nouveau style pour le sélecteur fait maison */
         #customPicker { display: none; margin-top: 15px; padding: 15px; background: #e8f4f8; border: 1px solid #3498db; border-radius: 4px; }
         select { padding: 8px; width: 100%; max-width: 400px; margin-top: 5px; margin-bottom: 10px; border-radius: 4px; border: 1px solid #bdc3c7; }
     </style>
 </head>
 <body>
 
-    <h2>📦 SyncDrive Pro <small>v1.2.0</small></h2>
+    <h2>📦 SyncDrive Pro <small>v1.2.1</small></h2>
     
     <div id="setup">
         <strong>1. Connexion & Sélection :</strong><br>
@@ -64,7 +63,7 @@
     <script async defer src="https://accounts.google.com/gsi/client" onload="gisLoaded()"></script>
 
     <script>
-        // --- CONFIGURATION INTÉGRÉE (Tes identifiants validés) ---
+        // --- CONFIGURATION INTÉGRÉE ---
         const CLIENT_ID = '944621175150-srl9ukm3ntq8rtg8629cm1fdo60tpe3v.apps.googleusercontent.com'; 
         const API_KEY = 'AIzaSyAN0QLhBIRQ_xxbU8tv0kix85DA3lY9nU4'; 
         const SCOPES = 'https://www.googleapis.com/auth/drive.readonly';
@@ -81,27 +80,40 @@
             l.scrollTop = l.scrollHeight;
         }
 
-        // --- NOUVEAU MOTEUR : SÉLECTEUR FAIT MAISON ---
+        // --- MOTEUR V1.2.1 : TRI ALPHABÉTIQUE ET PAGINATION COMPLÈTE ---
         async function loadDriveFolders() {
-            log("Interrogation de votre Drive (sans pop-up)...", "PROCESS");
+            log("Interrogation de votre Drive (recherche de tous les dossiers)...", "PROCESS");
             try {
-                const res = await gapi.client.drive.files.list({
-                    q: "mimeType='application/vnd.google-apps.folder' and trashed=false",
-                    fields: 'files(id, name)',
-                    pageSize: 100
-                });
-                
-                const folders = res.result.files;
-                if (!folders || folders.length === 0) {
+                let allFolders = [];
+                let pageToken = null;
+
+                // Boucle pour récupérer TOUS les dossiers (Google renvoie par lots)
+                do {
+                    const res = await gapi.client.drive.files.list({
+                        q: "mimeType='application/vnd.google-apps.folder' and trashed=false",
+                        fields: 'nextPageToken, files(id, name)',
+                        pageSize: 1000, 
+                        orderBy: 'name', // Tri alphabétique demandé à Google
+                        pageToken: pageToken
+                    });
+                    
+                    if (res.result.files) {
+                        allFolders = allFolders.concat(res.result.files);
+                    }
+                    pageToken = res.result.nextPageToken;
+                } while (pageToken); 
+
+                if (!allFolders || allFolders.length === 0) {
                     log("Aucun dossier trouvé sur votre Drive.", "WARNING");
                     return;
                 }
 
+                // Remplissage de la liste déroulante
                 const select = document.getElementById('driveFolderSelect');
-                select.innerHTML = folders.map(f => `<option value="${f.id}">📁 ${f.name}</option>`).join('');
+                select.innerHTML = allFolders.map(f => `<option value="${f.id}">📁 ${f.name}</option>`).join('');
                 
                 document.getElementById('customPicker').style.display = 'block';
-                log("Dossiers récupérés avec succès.", "SUCCESS");
+                log(`${allFolders.length} dossiers récupérés et triés avec succès.`, "SUCCESS");
 
             } catch (err) {
                 log("Erreur de récupération : " + err.message, "ERROR");
@@ -120,7 +132,7 @@
             await scanDriveFolder();
         }
 
-        // --- SCAN DES FICHIERS ---
+        // --- SCAN DES FICHIERS (SURFACE UNIQUEMENT POUR L'INSTANT) ---
         async function scanDriveFolder() {
             log("Scan des fichiers du dossier en cours...", "PROCESS");
             driveFiles = [];
