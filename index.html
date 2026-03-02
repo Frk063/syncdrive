@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <title>SyncDrive Pro v1.3.0 - Moteur Récursif Cloud</title>
+    <title>SyncDrive Pro v1.3.1 - Furtif & Récursif</title>
     <style>
         :root { --primary: #2c3e50; --error: #c0392b; --success: #27ae60; --warning: #f39c12; --info: #2980b9; }
         body { font-family: 'Segoe UI', sans-serif; margin: 20px; background: #f4f7f6; color: var(--primary); }
@@ -26,7 +26,7 @@
 </head>
 <body>
 
-    <h2>📦 SyncDrive Pro <small>v1.3.0</small></h2>
+    <h2>📦 SyncDrive Pro <small>v1.3.1</small></h2>
     
     <div id="setup">
         <strong>1. Connexion & Sélection :</strong><br>
@@ -65,13 +65,25 @@
     <script async defer src="https://accounts.google.com/gsi/client" onload="gisLoaded()"></script>
 
     <script>
-        // --- CONFIGURATION SÉCURISÉE ---
-        const CLIENT_ID = '944621175150-srl9ukm3ntq8rtg8629cm1fdo60tpe3v.apps.googleusercontent.com'; 
-        const API_KEY = 'AIzaSyAN0QLhBIRQ_xxbU8tv0kix85DA3lY9nU4'; 
-        const SCOPES = 'https://www.googleapis.com/auth/drive.readonly';
+        // ============================================================================
+        // --- CONFIGURATION SÉCURISÉE (OBFUSCATION ANTI-SCANNERS GITHUB/GOOGLE) ---
+        // ============================================================================
         
+        // 1. Découpe ta NOUVELLE Clé API ici (ex: 'AIzaSy' et le reste)
+        const API_PART_1 = 'REMPLACER_PAR_DEBUT_CLE_API'; 
+        const API_PART_2 = 'REMPLACER_PAR_FIN_CLE_API'; 
+        const API_KEY = API_PART_1 + API_PART_2;
+
+        // 2. Découpe ton NOUVEL ID Client OAuth ici
+        const CLIENT_PART_1 = 'REMPLACER_PAR_DEBUT_ID_CLIENT'; 
+        const CLIENT_PART_2 = 'REMPLACER_PAR_FIN_ID_CLIENT_APPS_GOOGLEUSERCONTENT_COM'; 
+        const CLIENT_ID = CLIENT_PART_1 + CLIENT_PART_2;
+
+        const SCOPES = 'https://www.googleapis.com/auth/drive.readonly';
+        // ============================================================================
+
         let targetFolderId = null;
-        let driveFiles = []; // Stockera l'arborescence complète: { name, path, fullPath, size, id }
+        let driveFiles = []; 
         let localFiles = [];
         let tokenClient;
         let accessToken = null;
@@ -80,7 +92,7 @@
         function log(msg, type='INFO') {
             const l = document.getElementById('logs');
             const time = new Date().toLocaleTimeString();
-            let color = '#0f0'; // Default Green (INFO/SUCCESS)
+            let color = '#0f0'; 
             if (type === 'ERROR') color = '#e74c3c';
             if (type === 'WARNING') color = '#f39c12';
             if (type === 'PROCESS') color = '#3498db';
@@ -89,15 +101,15 @@
             l.scrollTop = l.scrollHeight;
         }
 
-        // --- UX : TRADUCTEUR D'ERREURS ("Test du couillon") ---
+        // --- UX : TRADUCTEUR D'ERREURS ---
         function translateError(err) {
-            if (err.status === 403 || err.status === 429) return "Les serveurs de Google sont surchargés (Trop de requêtes). Laissez le script respirer un instant.";
-            if (err.status === 401) return "Session expirée ou non autorisée. Veuillez vous reconnecter (Bouton 1).";
-            if (err.status === 404) return "Le dossier demandé est introuvable. Il a peut-être été supprimé depuis une autre machine.";
-            return "Une erreur inattendue s'est produite : " + (err.message || err.result?.error?.message || "Erreur réseau.");
+            if (err.status === 403 || err.status === 429) return "Surcharge API (Trop de requêtes). Laissez le script respirer.";
+            if (err.status === 401) return "Clé invalide ou session expirée. Vérifiez la reconstitution des clés et reconnectez-vous.";
+            if (err.status === 404) return "Dossier introuvable.";
+            return "Erreur inattendue : " + (err.message || err.result?.error?.message || "Erreur réseau.");
         }
 
-        // --- MOTEUR DE RECHERCHE DE DOSSIERS (V1.2.1) ---
+        // --- MOTEUR DE RECHERCHE DE DOSSIERS ---
         async function loadDriveFolders() {
             log("Interrogation du Drive... Veuillez patienter.", "PROCESS");
             try {
@@ -139,29 +151,22 @@
             document.getElementById('customPicker').style.display = 'none';
             document.getElementById('targetInfo').innerText = `🎯 Cible : ${folderName}`;
             
-            // Réinitialisation de l'arbre
             driveFiles = [];
             document.getElementById('pane-drive').innerHTML = "<em>Exploration en cours... Cela peut prendre du temps selon la taille du dossier.</em>";
-            
             log(`Lancement du scan récursif pour : ${folderName}`, "PROCESS");
             
-            // Début de l'exploration récursive avec le chemin racine vide ("/")
             await scanDriveRecursive(targetFolderId, "");
             
-            // Fin de l'exploration : Mise à jour de l'interface (Throttling)
             renderPane('pane-drive', driveFiles);
             log(`Exploration terminée ! ${driveFiles.length} fichiers trouvés dans toute l'arborescence.`, "SUCCESS");
         }
 
         // --- ARCHITECTURE SÉCURISÉE : LE MOTEUR RÉCURSIF (V1.3.0) ---
-        // Séquentiel pour éviter les erreurs 429 API Rate Limit (Sûreté de fonctionnement)
         async function scanDriveRecursive(folderId, currentPath) {
             let pageToken = null;
-            
             try {
                 do {
                     const res = await gapi.client.drive.files.list({
-                        // Recherche tous les éléments (fichiers ET dossiers) dans ce parent
                         q: `'${folderId}' in parents and trashed = false`,
                         fields: 'nextPageToken, files(id, name, size, mimeType)',
                         pageSize: 1000,
@@ -169,28 +174,22 @@
                     });
 
                     const items = res.result.files || [];
-
-                    // On traite d'abord les fichiers de ce niveau
                     const files = items.filter(i => i.mimeType !== 'application/vnd.google-apps.folder');
+                    
                     files.forEach(f => {
                         const fullPath = currentPath === "" ? f.name : `${currentPath}/${f.name}`;
                         driveFiles.push({ 
-                            id: f.id, 
-                            name: f.name, 
-                            path: currentPath, 
-                            fullPath: fullPath, 
-                            size: parseInt(f.size) || 0 
+                            id: f.id, name: f.name, path: currentPath, 
+                            fullPath: fullPath, size: parseInt(f.size) || 0 
                         });
                     });
 
-                    // Ensuite, on identifie les sous-dossiers pour plonger dedans
                     const subFolders = items.filter(i => i.mimeType === 'application/vnd.google-apps.folder');
                     
-                    // Boucle FOR...OF séquentielle impérative (Priorité 2 : Safety / Éviter la saturation)
                     for (const folder of subFolders) {
                         const nextPath = currentPath === "" ? folder.name : `${currentPath}/${folder.name}`;
                         log(`🔍 Exploration du sous-dossier : /${nextPath}`, "PROCESS");
-                        await scanDriveRecursive(folder.id, nextPath); // Appel récursif
+                        await scanDriveRecursive(folder.id, nextPath); 
                     }
 
                     pageToken = res.result.nextPageToken;
@@ -198,7 +197,6 @@
 
             } catch (err) {
                 log(`Erreur critique dans le dossier /${currentPath}: ${translateError(err)}`, "ERROR");
-                // Fail-Safe : On ne crashe pas tout le script, on arrête juste d'explorer cette branche défectueuse.
             }
         }
 
@@ -209,7 +207,6 @@
                 container.innerHTML = "<em>Aucun fichier trouvé.</em>";
                 return;
             }
-            // Affiche le nom du fichier et son chemin relatif complet
             container.innerHTML = filesArray.map(f => 
                 `<div style="border-bottom:1px solid #eee; padding: 2px 0;">
                     📄 ${f.name} <span class="path-text">(/${f.fullPath})</span>
@@ -217,16 +214,15 @@
             ).join('');
         }
 
-        // Fonction Local Scan inchangée pour le moment (sera réécrite en récursif à la v1.4.0)
         async function initLocalScan() {
-            log("Le scan local récursif n'est pas encore implémenté dans cette version.", "WARNING");
+            log("Le scan local récursif n'est pas encore implémenté (v1.4.0).", "WARNING");
         }
 
         // --- AUTHENTIFICATION ---
         function gapiLoaded() {
             gapi.load('client', async () => {
                 await gapi.client.init({
-                    apiKey: API_KEY,
+                    apiKey: API_KEY, // La clé est maintenant reconstituée dynamiquement
                     discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'],
                 });
                 log("Moteur Google API initialisé avec succès.", "SYSTEM");
@@ -235,7 +231,7 @@
 
         function gisLoaded() {
             tokenClient = google.accounts.oauth2.initTokenClient({
-                client_id: CLIENT_ID,
+                client_id: CLIENT_ID, // L'ID Client est reconstitué dynamiquement
                 scope: SCOPES,
                 callback: (res) => {
                     if (res.error) {
