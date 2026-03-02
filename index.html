@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <title>SyncDrive Pro v1.1.8 - Stable</title>
+    <title>SyncDrive Pro v1.2.0 - Plan B</title>
     <style>
         :root { --primary: #2c3e50; --error: #c0392b; --success: #27ae60; --warning: #f39c12; }
         body { font-family: 'Segoe UI', sans-serif; margin: 20px; background: #f4f7f6; color: var(--primary); }
@@ -14,21 +14,31 @@
         .log-container { background: #000; color: #0f0; padding: 10px; height: 120px; overflow-y: scroll; font-size: 11px; margin-top: 20px; }
         button { padding: 8px 12px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; margin-right: 5px; margin-top: 5px; }
         .btn-blue { background: #3498db; color: white; }
+        .btn-green { background: var(--success); color: white; }
         .btn-orange { background: var(--warning); color: white; }
-        .status-tag { font-size: 10px; padding: 2px 5px; border-radius: 3px; background: #eee; }
         #btnPicker:disabled { background: #bdc3c7; cursor: not-allowed; }
+        
+        /* Nouveau style pour le sélecteur fait maison */
+        #customPicker { display: none; margin-top: 15px; padding: 15px; background: #e8f4f8; border: 1px solid #3498db; border-radius: 4px; }
+        select { padding: 8px; width: 100%; max-width: 400px; margin-top: 5px; margin-bottom: 10px; border-radius: 4px; border: 1px solid #bdc3c7; }
     </style>
 </head>
 <body>
 
-    <h2>📦 SyncDrive Pro <small>v1.1.8</small></h2>
+    <h2>📦 SyncDrive Pro <small>v1.2.0</small></h2>
     
     <div id="setup">
         <strong>1. Connexion & Sélection :</strong><br>
         <button class="btn-blue" onclick="handleAuthClick()">🔑 1. Connexion Google</button>
-        <button id="btnPicker" class="btn-blue" onclick="createPicker()" disabled>📁 2. Choisir Dossier Drive</button>
+        <button id="btnPicker" class="btn-blue" onclick="loadDriveFolders()" disabled>📁 2. Lister mes dossiers</button>
         <button class="btn-blue" onclick="initLocalScan()">💾 3. Choisir Dossier Local</button>
         <span id="targetInfo" style="margin-left:10px; color:var(--success); font-weight:bold;"></span>
+
+        <div id="customPicker">
+            <strong>Choisissez un dossier Drive :</strong><br>
+            <select id="driveFolderSelect"></select><br>
+            <button class="btn-green" onclick="confirmFolderSelection()">✅ Valider ce dossier</button>
+        </div>
     </div>
 
     <div id="controls">
@@ -54,7 +64,7 @@
     <script async defer src="https://accounts.google.com/gsi/client" onload="gisLoaded()"></script>
 
     <script>
-        // --- CONFIGURATION INTÉGRÉE (VÉRIFIÉE) ---
+        // --- CONFIGURATION INTÉGRÉE (Tes identifiants validés) ---
         const CLIENT_ID = '944621175150-srl9ukm3ntq8rtg8629cm1fdo60tpe3v.apps.googleusercontent.com'; 
         const API_KEY = 'AIzaSyAN0QLhBIRQ_xxbU8tv0kix85DA3lY9nU4'; 
         const SCOPES = 'https://www.googleapis.com/auth/drive.readonly';
@@ -70,42 +80,49 @@
             l.innerHTML += `[${type}] ${msg}<br>`;
             l.scrollTop = l.scrollHeight;
         }
-        // --- GOOGLE PICKER (VERSION BYPASS COOP) ---
-        function createPicker() {
-            // On calcule l'origine de manière ultra-précise pour le navigateur
-            const origin = window.location.protocol + "//" + window.location.host;
-            
-            log("Ouverture du tunnel sécurisé...", "PROCESS");
 
-            const view = new google.picker.DocsView(google.picker.ViewId.FOLDERS)
-                .setIncludeFolders(true)
-                .setMimeTypes('application/vnd.google-apps.folder');
+        // --- NOUVEAU MOTEUR : SÉLECTEUR FAIT MAISON ---
+        async function loadDriveFolders() {
+            log("Interrogation de votre Drive (sans pop-up)...", "PROCESS");
+            try {
+                const res = await gapi.client.drive.files.list({
+                    q: "mimeType='application/vnd.google-apps.folder' and trashed=false",
+                    fields: 'files(id, name)',
+                    pageSize: 100
+                });
+                
+                const folders = res.result.files;
+                if (!folders || folders.length === 0) {
+                    log("Aucun dossier trouvé sur votre Drive.", "WARNING");
+                    return;
+                }
 
-            const picker = new google.picker.PickerBuilder()
-                .addView(view)
-                .setOAuthToken(accessToken)
-                .setDeveloperKey(API_KEY)
-                .setOrigin(origin) 
-                .setCallback(pickerCallback)
-                // On ajoute ces deux options pour stabiliser la fenêtre sur ChromeOS
-                .enableFeature(google.picker.Feature.SUPPORT_DRIVES)
-                .enableFeature(google.picker.Feature.NAV_HIDDEN)
-                .build();
-            picker.setVisible(true);
-        }        
+                const select = document.getElementById('driveFolderSelect');
+                select.innerHTML = folders.map(f => `<option value="${f.id}">📁 ${f.name}</option>`).join('');
+                
+                document.getElementById('customPicker').style.display = 'block';
+                log("Dossiers récupérés avec succès.", "SUCCESS");
 
-        async function pickerCallback(data) {
-            if (data.action === google.picker.Action.PICKED) {
-                const doc = data.docs[0];
-                targetFolderId = doc.id;
-                document.getElementById('targetInfo').innerText = `🎯 Cible : ${doc.name}`;
-                log(`Dossier Cloud ciblé : ${doc.name}`, "SUCCESS");
-                await scanDriveFolder();
+            } catch (err) {
+                log("Erreur de récupération : " + err.message, "ERROR");
             }
         }
 
+        async function confirmFolderSelection() {
+            const select = document.getElementById('driveFolderSelect');
+            targetFolderId = select.value;
+            const folderName = select.options[select.selectedIndex].text;
+            
+            document.getElementById('customPicker').style.display = 'none';
+            document.getElementById('targetInfo').innerText = `🎯 Cible : ${folderName.replace('📁 ', '')}`;
+            log(`Dossier ciblé : ${folderName.replace('📁 ', '')}`, "SUCCESS");
+            
+            await scanDriveFolder();
+        }
+
+        // --- SCAN DES FICHIERS ---
         async function scanDriveFolder() {
-            log("Scan Cloud en cours...", "PROCESS");
+            log("Scan des fichiers du dossier en cours...", "PROCESS");
             driveFiles = [];
             try {
                 const res = await gapi.client.drive.files.list({
@@ -118,7 +135,7 @@
                     }
                 });
                 renderPane('pane-drive', driveFiles);
-                log(`${driveFiles.length} fichiers trouvés.`, "SUCCESS");
+                log(`${driveFiles.length} fichiers trouvés dans le cloud.`, "SUCCESS");
             } catch (err) { log("Erreur Scan: " + err.message, "ERROR"); }
         }
 
@@ -143,7 +160,7 @@
         }
 
         function gapiLoaded() {
-            gapi.load('client:picker', async () => {
+            gapi.load('client', async () => {
                 await gapi.client.init({
                     apiKey: API_KEY,
                     discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'],
