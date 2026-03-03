@@ -2,58 +2,61 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <title>SyncDrive Pro v1.5.1 - Interface & Routage</title>
+    <title>SyncDrive Pro v1.5.2 - Sécurité & Audit</title>
     <style>
         :root { --primary: #2c3e50; --error: #c0392b; --success: #27ae60; --warning: #f39c12; --info: #2980b9; --purple: #8e44ad; }
         body { font-family: 'Segoe UI', sans-serif; margin: 20px; background: #f4f7f6; color: var(--primary); }
+        h2 { display: flex; align-items: center; gap: 10px; }
+        .status-dot { height: 15px; width: 15px; background-color: var(--error); border-radius: 50%; display: inline-block; box-shadow: 0 0 5px rgba(0,0,0,0.2); }
+        .status-dot.connected { background-color: var(--success); }
+        
         #setup, #controls { background: white; padding: 15px; border-radius: 4px; margin-bottom: 15px; border: 1px solid #bdc3c7; }
         .panes-container { display: flex; gap: 20px; }
         .pane { flex: 1; background: white; border: 1px solid #bdc3c7; border-radius: 4px; }
         .pane-header { background: var(--primary); color: white; padding: 10px; font-weight: bold; text-align: center; }
         .pane-content { height: 350px; overflow-y: auto; padding: 10px; font-family: monospace; font-size: 12px; }
         .log-container { background: #000; color: #0f0; padding: 10px; height: 150px; overflow-y: scroll; font-size: 11px; margin-top: 20px; line-height: 1.4; }
+        
         button { padding: 8px 12px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; margin-right: 5px; margin-top: 5px; transition: background 0.3s; }
         button:hover { filter: brightness(1.1); }
+        button:disabled { background: #bdc3c7 !important; cursor: not-allowed; }
         .btn-blue { background: var(--info); color: white; }
         .btn-green { background: var(--success); color: white; }
         .btn-orange { background: var(--warning); color: white; }
         .btn-red { background: var(--error); color: white; }
-        #btnPicker:disabled, #btnSimul:disabled { background: #bdc3c7; cursor: not-allowed; }
         
         #customPicker { display: none; margin-top: 15px; padding: 15px; background: #e8f4f8; border: 1px solid var(--info); border-radius: 4px; }
         select { padding: 8px; width: 100%; max-width: 400px; margin-top: 5px; margin-bottom: 10px; border-radius: 4px; border: 1px solid #bdc3c7; }
         .path-text { color: #7f8c8d; font-size: 0.9em; margin-left: 5px; }
 
-        /* Nouvelle table de routage */
         .routing-table { width: 100%; margin-top: 15px; border-collapse: collapse; text-align: left; font-size: 14px; }
         .routing-table th { padding: 8px; border: 1px solid #bdc3c7; background: #ecf0f1; width: 50%; }
         .routing-table td { padding: 8px; border: 1px solid #bdc3c7; color: var(--info); font-weight: bold; }
+        
+        .info-text { font-size: 0.85em; color: #7f8c8d; font-style: italic; margin-top: 10px; display: block; }
     </style>
 </head>
 <body>
 
-    <h2>📦 SyncDrive Pro <small>v1.5.1</small></h2>
+    <h2><span id="connStatus" class="status-dot" title="Déconnecté"></span> 📦 SyncDrive Pro <small>v1.5.2</small></h2>
     
     <div id="setup">
         <strong>1. Connexion & Sélection :</strong><br>
-        <button class="btn-blue" onclick="handleAuthClick()">🔑 1. Connexion Google</button>
+        <button id="btnAuth" class="btn-blue" onclick="handleAuthClick()">🔑 1. Connexion Google</button>
+        <button id="btnRevoke" class="btn-red" onclick="handleRevokeClick()" style="display:none;">🔴 Déconnexion</button>
         <button id="btnPicker" class="btn-blue" onclick="loadDriveFolders()" disabled>📁 2. Choisir Dossier Cloud</button>
         <button class="btn-blue" onclick="initLocalScan()">💾 3. Choisir Dossier Local</button>
-        <button class="btn-red" onclick="resetApp()" style="float: right;">🔄 Réinitialiser les sélections</button>
+        <button class="btn-orange" onclick="resetApp()" style="float: right;">🔄 Réinitialiser les sélections</button>
+
+        <span class="info-text">ℹ️ <strong>Règle de filtrage :</strong> Les fichiers système (.ini, .lnk, .url, Thumbs.db, .DS_Store...) et les fichiers cachés (commençant par un point) sont systématiquement ignorés par sécurité.</span>
 
         <table class="routing-table">
-            <tr>
-                <th>☁️ Source (Google Drive obligatoirement)</th>
-                <th>💾 Cible (Disque Local obligatoirement)</th>
-            </tr>
-            <tr>
-                <td id="td-drive">En attente de sélection...</td>
-                <td id="td-local">En attente de sélection...</td>
-            </tr>
+            <tr><th>☁️ Source (Google Drive)</th><th>💾 Cible (Disque Local)</th></tr>
+            <tr><td id="td-drive">En attente...</td><td id="td-local">En attente...</td></tr>
         </table>
 
         <div id="customPicker">
-            <strong>Choisissez un dossier Drive racine à explorer :</strong><br>
+            <strong>Choisissez un dossier Drive racine :</strong><br>
             <select id="driveFolderSelect"></select><br>
             <button class="btn-green" onclick="confirmFolderSelection()">✅ Lancer l'exploration Cloud</button>
         </div>
@@ -61,19 +64,14 @@
 
     <div id="controls">
         <strong>2. Analyse :</strong><br>
-        <button id="btnSimul" class="btn-orange" onclick="runSimulation()" disabled>📋 Lancer la Simulation (Différentiel)</button>
+        <button id="btnSimul" class="btn-blue" onclick="runSimulation()" disabled>📋 Lancer la Simulation (Différentiel)</button>
+        <button id="btnReport" class="btn-red" onclick="generateCSVReport()" style="display:none; float:right;">⚠️ Fichiers ignorés (CSV)</button>
         <span id="diffStats" style="margin-left:15px; font-weight: bold;"></span>
     </div>
 
     <div class="panes-container">
-        <div class="pane">
-            <div class="pane-header">☁️ CLOUD (Arborescence complète)</div>
-            <div id="pane-drive" class="pane-content">En attente d'exploration...</div>
-        </div>
-        <div class="pane">
-            <div class="pane-header">💾 LOCAL (Arborescence complète)</div>
-            <div id="pane-local" class="pane-content">En attente d'exploration...</div>
-        </div>
+        <div class="pane"><div class="pane-header">☁️ CLOUD</div><div id="pane-drive" class="pane-content">En attente...</div></div>
+        <div class="pane"><div class="pane-header">💾 LOCAL</div><div id="pane-local" class="pane-content">En attente...</div></div>
     </div>
 
     <div class="log-container" id="logs"></div>
@@ -96,10 +94,13 @@
         // ============================================================================
 
         let targetFolderId = null;
-        let driveFiles = []; 
-        let localFiles = [];
-        let tokenClient;
-        let accessToken = null;
+        let driveFiles = []; let localFiles = [];
+        let ignoredFiles = []; // Tableau de quarantaine
+        let tokenClient; let accessToken = null;
+        let isConnected = false;
+
+        // LA BLOCKLIST (En minuscules pour faciliter la comparaison)
+        const BLOCKLIST = ['.url', '.lnk', '.ini', '.desktop', '.ds_store', 'thumbs.db'];
 
         function log(msg, type='INFO') {
             const l = document.getElementById('logs');
@@ -109,32 +110,42 @@
             if (type === 'WARNING') color = '#f39c12';
             if (type === 'PROCESS') color = '#3498db';
             if (type === 'SIMUL') color = '#8e44ad';
-            
             l.innerHTML += `<span style="color:#888;">[${time}]</span> <span style="color:${color};">[${type}]</span> ${msg}<br>`;
             l.scrollTop = l.scrollHeight;
         }
 
-        // --- NOUVELLE FONCTION : RÉINITIALISATION ---
-        function resetApp() {
-            driveFiles = [];
-            localFiles = [];
-            targetFolderId = null;
-            document.getElementById('td-drive').innerText = "En attente de sélection...";
-            document.getElementById('td-local').innerText = "En attente de sélection...";
-            document.getElementById('pane-drive').innerHTML = "En attente d'exploration...";
-            document.getElementById('pane-local').innerHTML = "En attente d'exploration...";
-            document.getElementById('diffStats').innerHTML = "";
-            document.getElementById('btnSimul').disabled = true;
-            document.getElementById('customPicker').style.display = 'none';
-            log("Système réinitialisé. Prêt pour de nouvelles sélections.", "WARNING");
+        // --- BOUCLIER ANTI-FERMETURE ---
+        window.addEventListener('beforeunload', (e) => {
+            if (isConnected) {
+                e.preventDefault();
+                e.returnValue = "Vous êtes connecté. Voulez-vous vraiment quitter sans vous déconnecter proprement ?";
+            }
+        });
+
+        // --- FONCTION DE FILTRAGE ---
+        function isFileIgnored(fileName) {
+            const nameLower = fileName.toLowerCase();
+            // Ignore les fichiers cachés (commençant par .) sauf s'il n'y a pas de nom (ex: .htaccess, à voir selon besoin)
+            if (fileName.startsWith('.') && fileName.length > 1) return true;
+            // Vérifie les extensions et noms stricts
+            for (let ext of BLOCKLIST) {
+                if (nameLower.endsWith(ext) || nameLower === ext) return true;
+            }
+            return false;
         }
 
-        function checkSimulationReady() {
-            if (driveFiles.length > 0 && localFiles.length > 0) {
-                document.getElementById('btnSimul').disabled = false;
-            } else {
-                document.getElementById('btnSimul').disabled = true;
-            }
+        // --- UI : RÉINITIALISATION ---
+        function resetApp() {
+            driveFiles = []; localFiles = []; ignoredFiles = []; targetFolderId = null;
+            document.getElementById('td-drive').innerText = "En attente...";
+            document.getElementById('td-local').innerText = "En attente...";
+            document.getElementById('pane-drive').innerHTML = "En attente...";
+            document.getElementById('pane-local').innerHTML = "En attente...";
+            document.getElementById('diffStats').innerHTML = "";
+            document.getElementById('btnSimul').disabled = true;
+            document.getElementById('btnReport').style.display = 'none';
+            document.getElementById('customPicker').style.display = 'none';
+            log("Sélections réinitialisées.", "WARNING");
         }
 
         function renderPaneSafe(id, filesArray) {
@@ -145,11 +156,22 @@
             filesArray.forEach(f => {
                 const div = document.createElement('div');
                 div.style.borderBottom = '1px solid #eee'; div.style.padding = '2px 0';
-                const iconText = document.createTextNode('📄 ' + f.name + ' ');
+                div.appendChild(document.createTextNode('📄 ' + f.name + ' '));
                 const span = document.createElement('span'); span.className = 'path-text'; span.textContent = '(/'+ f.fullPath +')';
-                div.appendChild(iconText); div.appendChild(span); fragment.appendChild(div);
+                div.appendChild(span); fragment.appendChild(div);
             });
             container.appendChild(fragment);
+        }
+
+        // --- UI : GESTION BOUTON RAPPORT ---
+        function checkIgnoredFiles() {
+            const btn = document.getElementById('btnReport');
+            if (ignoredFiles.length > 0) {
+                btn.style.display = 'inline-block';
+                btn.innerText = `⚠️ ${ignoredFiles.length} Fichier(s) Ignoré(s) - Voir Rapport`;
+            } else {
+                btn.style.display = 'none';
+            }
         }
 
         // --- MOTEUR 1 : CLOUD ---
@@ -168,25 +190,21 @@
                 const select = document.getElementById('driveFolderSelect');
                 select.innerHTML = allFolders.map(f => `<option value="${f.id}">📁 ${f.name}</option>`).join('');
                 document.getElementById('customPicker').style.display = 'block';
-            } catch (err) { log("Erreur Cloud: Vérifiez votre connexion.", "ERROR"); }
+            } catch (err) { log("Erreur Cloud. Vérifiez la connexion.", "ERROR"); }
         }
 
         async function confirmFolderSelection() {
-            const select = document.getElementById('driveFolderSelect');
-            targetFolderId = select.value;
+            const select = document.getElementById('driveFolderSelect'); targetFolderId = select.value;
             const folderName = select.options[select.selectedIndex].text.replace('📁 ', '');
-            
-            // UI Update (Remplace l'accumulation)
             document.getElementById('td-drive').innerText = `[Drive] /${folderName}`;
             document.getElementById('customPicker').style.display = 'none';
-            
-            driveFiles = []; // Purge vitale
-            document.getElementById('pane-drive').innerHTML = "<em>Exploration en cours...</em>";
+            driveFiles = []; document.getElementById('pane-drive').innerHTML = "<em>Exploration en cours...</em>";
             
             await scanDriveRecursive(targetFolderId, "");
             renderPaneSafe('pane-drive', driveFiles);
-            log(`Exploration Cloud terminée ! ${driveFiles.length} fichiers trouvés.`, "SUCCESS");
-            checkSimulationReady();
+            checkIgnoredFiles();
+            log(`Scan Cloud OK : ${driveFiles.length} fichiers retenus.`, "SUCCESS");
+            if(driveFiles.length > 0 && localFiles.length > 0) document.getElementById('btnSimul').disabled = false;
         }
 
         async function scanDriveRecursive(folderId, currentPath) {
@@ -195,14 +213,19 @@
                 do {
                     const res = await gapi.client.drive.files.list({
                         q: `'${folderId}' in parents and trashed = false`,
-                        fields: 'nextPageToken, files(id, name, size, mimeType, modifiedTime)',
-                        pageSize: 1000, pageToken: pageToken
+                        fields: 'nextPageToken, files(id, name, size, mimeType, modifiedTime)', pageSize: 1000, pageToken: pageToken
                     });
                     const items = res.result.files || [];
                     const files = items.filter(i => i.mimeType !== 'application/vnd.google-apps.folder');
                     files.forEach(f => {
                         const fullPath = currentPath === "" ? f.name : `${currentPath}/${f.name}`;
-                        driveFiles.push({ id: f.id, name: f.name, fullPath: fullPath, size: parseInt(f.size) || 0, modifiedTime: new Date(f.modifiedTime).getTime() });
+                        const fileObj = { name: f.name, fullPath: fullPath, size: parseInt(f.size) || 0, modifiedTime: new Date(f.modifiedTime).getTime() };
+                        
+                        if (isFileIgnored(f.name)) {
+                            fileObj.source = 'CLOUD'; ignoredFiles.push(fileObj);
+                        } else {
+                            driveFiles.push({ id: f.id, ...fileObj });
+                        }
                     });
                     const subFolders = items.filter(i => i.mimeType === 'application/vnd.google-apps.folder');
                     for (const folder of subFolders) {
@@ -218,20 +241,15 @@
         async function initLocalScan() {
             try {
                 const directoryHandle = await window.showDirectoryPicker({ mode: 'read' });
-                
-                // UI Update (Remplace l'accumulation)
                 document.getElementById('td-local').innerText = `[PC] /${directoryHandle.name}`;
                 document.getElementById('pane-local').innerHTML = "<em>Exploration locale en cours...</em>";
-                
-                localFiles = []; // Purge vitale
-                
+                localFiles = []; 
                 await scanLocalRecursive(directoryHandle, "");
                 renderPaneSafe('pane-local', localFiles);
-                log(`Exploration locale terminée ! ${localFiles.length} fichiers trouvés.`, "SUCCESS");
-                checkSimulationReady();
-            } catch (err) {
-                if (err.name !== 'AbortError') log(`Erreur d'accès local : ${err.message}`, "ERROR");
-            }
+                checkIgnoredFiles();
+                log(`Scan Local OK : ${localFiles.length} fichiers retenus.`, "SUCCESS");
+                if(driveFiles.length > 0 && localFiles.length > 0) document.getElementById('btnSimul').disabled = false;
+            } catch (err) { if (err.name !== 'AbortError') log(`Erreur locale : ${err.message}`, "ERROR"); }
         }
 
         async function scanLocalRecursive(dirHandle, currentPath) {
@@ -240,7 +258,13 @@
                     const fullPath = currentPath === "" ? entry.name : `${currentPath}/${entry.name}`;
                     if (entry.kind === 'file') {
                         const fileData = await entry.getFile();
-                        localFiles.push({ name: entry.name, fullPath: fullPath, size: fileData.size, lastModified: fileData.lastModified });
+                        const fileObj = { name: entry.name, fullPath: fullPath, size: fileData.size, lastModified: fileData.lastModified };
+                        
+                        if (isFileIgnored(entry.name)) {
+                            fileObj.source = 'LOCAL'; ignoredFiles.push(fileObj);
+                        } else {
+                            localFiles.push(fileObj);
+                        }
                     } else if (entry.kind === 'directory') {
                         await scanLocalRecursive(entry, fullPath);
                     }
@@ -248,41 +272,93 @@
             } catch (err) { log(`Accès refusé par l'OS pour /${currentPath}`, "ERROR"); }
         }
 
-        // --- MOTEUR 3 : LE CERVEAU DIFFÉRENTIEL ---
+        // --- MOTEUR 3 : SIMULATION ---
         function runSimulation() {
-            log("--- DÉBUT DE LA SIMULATION ---", "SIMUL");
+            log("--- DÉBUT SIMULATION ---", "SIMUL");
             let toDownload = []; let toUpdate = []; let identical = []; let orphans = [];
+            driveFiles.forEach(c => {
+                const l = localFiles.find(lf => lf.fullPath === c.fullPath);
+                if (!l) { toDownload.push(c); } 
+                else { if (c.modifiedTime > (l.lastModified + 2000)) toUpdate.push(c); else identical.push(c); }
+            });
+            localFiles.forEach(l => { if (!driveFiles.find(df => df.fullPath === l.fullPath)) orphans.push(l); });
 
-            driveFiles.forEach(cloudFile => {
-                const localFile = localFiles.find(lf => lf.fullPath === cloudFile.fullPath);
-                if (!localFile) { toDownload.push(cloudFile); } 
-                else {
-                    if (cloudFile.modifiedTime > (localFile.lastModified + 2000)) { toUpdate.push(cloudFile); } 
-                    else { identical.push(cloudFile); }
-                }
+            document.getElementById('diffStats').innerHTML = `<span style="color:var(--purple)">⬇️ ${toDownload.length} dl</span> | <span style="color:var(--info)">🔄 ${toUpdate.length} maj</span> | <span style="color:var(--warning)">⚠️ ${orphans.length} orphelins</span> | <span style="color:var(--success)">✅ ${identical.length} ok</span>`;
+            log("Simulation terminée. Voir les logs complets dans la console si besoin.", "SUCCESS");
+        }
+
+        // --- MÉCANIQUE DU RAPPORT CSV ---
+        function generateCSVReport() {
+            if (ignoredFiles.length === 0) return;
+            log("Génération du rapport CSV d'audit...", "PROCESS");
+            
+            // Construction du contenu CSV (Avec BOM UTF-8 pour Excel)
+            const bom = "\uFEFF";
+            let csvContent = "Emplacement|Chemin Complet|Nom Fichier|Taille (Ko)|Date de Modification\n";
+            
+            ignoredFiles.forEach(f => {
+                const source = f.source;
+                const path = f.fullPath;
+                const name = f.name;
+                const sizeKo = (f.size / 1024).toFixed(2);
+                const dateModif = new Date(f.modifiedTime || f.lastModified).toLocaleString('fr-FR');
+                csvContent += `${source}|${path}|${name}|${sizeKo}|${dateModif}\n`;
             });
 
-            localFiles.forEach(localFile => {
-                const cloudFile = driveFiles.find(df => df.fullPath === localFile.fullPath);
-                if (!cloudFile) orphans.push(localFile);
-            });
+            // Création du fichier téléchargeable en mémoire
+            const blob = new Blob([bom + csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
 
-            document.getElementById('diffStats').innerHTML = 
-                `<span style="color:var(--purple)">⬇️ ${toDownload.length} à télécharger</span> | 
-                 <span style="color:var(--info)">🔄 ${toUpdate.length} à mettre à jour</span> | 
-                 <span style="color:var(--warning)">⚠️ ${orphans.length} orphelins (ex: doublons locaux)</span> | 
-                 <span style="color:var(--success)">✅ ${identical.length} identiques</span>`;
-
-            if (toDownload.length > 0) log(`${toDownload.length} fichier(s) manquent en local.`, "SIMUL");
-            if (toUpdate.length > 0) log(`${toUpdate.length} fichier(s) locaux sont obsolètes.`, "SIMUL");
-            if (orphans.length > 0) log(`Attention: ${orphans.length} fichier(s) locaux n'existent pas sur le Cloud.`, "WARNING");
-            log("--- FIN DE LA SIMULATION ---", "SIMUL");
+            // Création d'une nouvelle page (Onglet) dynamique pour l'affichage
+            const newWindow = window.open('', '_blank');
+            newWindow.document.write(`
+                <html><head><title>Rapport d'Audit - Fichiers Ignorés</title>
+                <style>body{font-family:sans-serif; padding:20px; background:#f4f7f6; color:#2c3e50;} 
+                table{width:100%; border-collapse:collapse; background:white;} 
+                th,td{padding:8px; border:1px solid #bdc3c7; text-align:left;} 
+                th{background:#2980b9; color:white;}
+                button{padding:10px 15px; background:#27ae60; color:white; border:none; border-radius:4px; font-weight:bold; cursor:pointer; margin-bottom:20px; font-size:16px;}</style>
+                </head><body>
+                <h2>⚠️ Audit de Sécurité : ${ignoredFiles.length} Fichier(s) Ignoré(s)</h2>
+                <p>Ces fichiers n'ont pas été pris en compte dans la synchronisation (fichiers système ou cachés).</p>
+                <a href="${url}" download="SyncDrive_Audit_Ignores.csv"><button>📥 Télécharger le fichier CSV</button></a>
+                <table><tr><th>Emplacement</th><th>Chemin</th><th>Fichier</th><th>Poids (Ko)</th><th>Dernière Modif.</th></tr>
+                ${ignoredFiles.map(f => `<tr><td>${f.source}</td><td>${f.fullPath}</td><td>${f.name}</td><td>${(f.size/1024).toFixed(2)}</td><td>${new Date(f.modifiedTime || f.lastModified).toLocaleString('fr-FR')}</td></tr>`).join('')}
+                </table></body></html>
+            `);
+            newWindow.document.close();
         }
 
         // --- AUTHENTIFICATION ---
-        function gapiLoaded() { gapi.load('client', async () => { await gapi.client.init({ apiKey: API_KEY, discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'] }); log("Google API OK.", "SYSTEM"); }); }
-        function gisLoaded() { tokenClient = google.accounts.oauth2.initTokenClient({ client_id: CLIENT_ID, scope: SCOPES, callback: (res) => { if (res.error) return; accessToken = res.access_token; document.getElementById('btnPicker').disabled = false; log("Connexion OK.", "SUCCESS"); } }); }
+        function gapiLoaded() { gapi.load('client', async () => { await gapi.client.init({ apiKey: API_KEY, discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'] }); log("API Prête.", "SYSTEM"); }); }
+        function gisLoaded() { tokenClient = google.accounts.oauth2.initTokenClient({ client_id: CLIENT_ID, scope: SCOPES, callback: (res) => { 
+            if (res.error) return; 
+            accessToken = res.access_token; 
+            isConnected = true;
+            document.getElementById('connStatus').className = "status-dot connected";
+            document.getElementById('connStatus').title = "Connecté à Google Drive";
+            document.getElementById('btnAuth').style.display = 'none';
+            document.getElementById('btnRevoke').style.display = 'inline-block';
+            document.getElementById('btnPicker').disabled = false; 
+            log("Connexion sécurisée établie.", "SUCCESS"); 
+        }}); }
         function handleAuthClick() { tokenClient.requestAccessToken(); }
+        
+        function handleRevokeClick() {
+            if (accessToken) {
+                google.accounts.oauth2.revoke(accessToken, () => {
+                    accessToken = null;
+                    isConnected = false;
+                    document.getElementById('connStatus').className = "status-dot";
+                    document.getElementById('connStatus').title = "Déconnecté";
+                    document.getElementById('btnAuth').style.display = 'inline-block';
+                    document.getElementById('btnRevoke').style.display = 'none';
+                    document.getElementById('btnPicker').disabled = true;
+                    resetApp();
+                    log("Déconnexion réussie. Jeton révoqué.", "SUCCESS");
+                });
+            }
+        }
     </script>
 </body>
 </html>
