@@ -200,7 +200,7 @@
             document.getElementById('customPicker').style.display = 'none';
             driveFiles = []; document.getElementById('pane-drive').innerHTML = "<em>Exploration en cours...</em>";
             
-            await scanDriveRecursive(targetFolderId, "");
+            await scanDriveRecursive(targetFolderId, folderName);
             renderPaneSafe('pane-drive', driveFiles);
             checkIgnoredFiles();
             log(`Scan Cloud OK : ${driveFiles.length} fichiers retenus.`, "SUCCESS");
@@ -244,7 +244,7 @@
                 document.getElementById('td-local').innerText = `[PC] /${directoryHandle.name}`;
                 document.getElementById('pane-local').innerHTML = "<em>Exploration locale en cours...</em>";
                 localFiles = []; 
-                await scanLocalRecursive(directoryHandle, "");
+                await scanLocalRecursive(directoryHandle, directoryHandle.name);
                 renderPaneSafe('pane-local', localFiles);
                 checkIgnoredFiles();
                 log(`Scan Local OK : ${localFiles.length} fichiers retenus.`, "SUCCESS");
