@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <title>SyncDrive Pro v1.5.0 - Simulation Mono-directionnelle</title>
+    <title>SyncDrive Pro v1.5.1 - Interface & Routage</title>
     <style>
         :root { --primary: #2c3e50; --error: #c0392b; --success: #27ae60; --warning: #f39c12; --info: #2980b9; --purple: #8e44ad; }
         body { font-family: 'Segoe UI', sans-serif; margin: 20px; background: #f4f7f6; color: var(--primary); }
@@ -17,35 +17,45 @@
         .btn-blue { background: var(--info); color: white; }
         .btn-green { background: var(--success); color: white; }
         .btn-orange { background: var(--warning); color: white; }
+        .btn-red { background: var(--error); color: white; }
         #btnPicker:disabled, #btnSimul:disabled { background: #bdc3c7; cursor: not-allowed; }
         
         #customPicker { display: none; margin-top: 15px; padding: 15px; background: #e8f4f8; border: 1px solid var(--info); border-radius: 4px; }
         select { padding: 8px; width: 100%; max-width: 400px; margin-top: 5px; margin-bottom: 10px; border-radius: 4px; border: 1px solid #bdc3c7; }
         .path-text { color: #7f8c8d; font-size: 0.9em; margin-left: 5px; }
-        
-        /* Badges pour la simulation */
-        .badge { padding: 2px 6px; border-radius: 3px; font-weight: bold; font-size: 10px; margin-right: 5px; color: white; }
-        .badge-new { background: var(--purple); }
-        .badge-update { background: var(--info); }
-        .badge-orphan { background: var(--warning); }
-        .badge-ok { background: var(--success); }
+
+        /* Nouvelle table de routage */
+        .routing-table { width: 100%; margin-top: 15px; border-collapse: collapse; text-align: left; font-size: 14px; }
+        .routing-table th { padding: 8px; border: 1px solid #bdc3c7; background: #ecf0f1; width: 50%; }
+        .routing-table td { padding: 8px; border: 1px solid #bdc3c7; color: var(--info); font-weight: bold; }
     </style>
 </head>
 <body>
 
-    <h2>📦 SyncDrive Pro <small>v1.5.0</small></h2>
+    <h2>📦 SyncDrive Pro <small>v1.5.1</small></h2>
     
     <div id="setup">
         <strong>1. Connexion & Sélection :</strong><br>
         <button class="btn-blue" onclick="handleAuthClick()">🔑 1. Connexion Google</button>
-        <button id="btnPicker" class="btn-blue" onclick="loadDriveFolders()" disabled>📁 2. Lister mes dossiers</button>
+        <button id="btnPicker" class="btn-blue" onclick="loadDriveFolders()" disabled>📁 2. Choisir Dossier Cloud</button>
         <button class="btn-blue" onclick="initLocalScan()">💾 3. Choisir Dossier Local</button>
-        <span id="targetInfo" style="margin-left:10px; color:var(--success); font-weight:bold;"></span>
+        <button class="btn-red" onclick="resetApp()" style="float: right;">🔄 Réinitialiser les sélections</button>
+
+        <table class="routing-table">
+            <tr>
+                <th>☁️ Source (Google Drive obligatoirement)</th>
+                <th>💾 Cible (Disque Local obligatoirement)</th>
+            </tr>
+            <tr>
+                <td id="td-drive">En attente de sélection...</td>
+                <td id="td-local">En attente de sélection...</td>
+            </tr>
+        </table>
 
         <div id="customPicker">
             <strong>Choisissez un dossier Drive racine à explorer :</strong><br>
             <select id="driveFolderSelect"></select><br>
-            <button class="btn-green" onclick="confirmFolderSelection()">✅ Lancer l'exploration récursive</button>
+            <button class="btn-green" onclick="confirmFolderSelection()">✅ Lancer l'exploration Cloud</button>
         </div>
     </div>
 
@@ -76,10 +86,10 @@
         // --- CONFIGURATION SÉCURISÉE ---
         // ============================================================================
         const API_PART_1 = 'AIzaSy'; 
-        const API_PART_2 = 'DhTQ0I_uqEgHQUA1TnAZRQwBYF-gUfxxc'; 
+        const API_PART_2 = 'REMPLACE_CECI_PAR_LA_FIN_DE_TA_CLE_API'; 
         const API_KEY = API_PART_1 + API_PART_2;
 
-        const CLIENT_PART_1 = '944621175150-1b9r7m8gb3vvn597ot92c4lhqb9ud9b2'; 
+        const CLIENT_PART_1 = 'REMPLACE_CECI_PAR_LE_DEBUT_DE_TON_ID_CLIENT'; 
         const CLIENT_PART_2 = '.apps.googleusercontent.com'; 
         const CLIENT_ID = CLIENT_PART_1 + CLIENT_PART_2;
         const SCOPES = 'https://www.googleapis.com/auth/drive.readonly';
@@ -104,78 +114,73 @@
             l.scrollTop = l.scrollHeight;
         }
 
-        function translateError(err) {
-            if (err.status === 403 || err.status === 429) return "Surcharge API. Laissez le script respirer.";
-            if (err.status === 401) return "Clé invalide ou session expirée.";
-            if (err.status === 404) return "Dossier introuvable.";
-            return "Erreur inattendue : " + (err.message || err.result?.error?.message || "Erreur réseau.");
+        // --- NOUVELLE FONCTION : RÉINITIALISATION ---
+        function resetApp() {
+            driveFiles = [];
+            localFiles = [];
+            targetFolderId = null;
+            document.getElementById('td-drive').innerText = "En attente de sélection...";
+            document.getElementById('td-local').innerText = "En attente de sélection...";
+            document.getElementById('pane-drive').innerHTML = "En attente d'exploration...";
+            document.getElementById('pane-local').innerHTML = "En attente d'exploration...";
+            document.getElementById('diffStats').innerHTML = "";
+            document.getElementById('btnSimul').disabled = true;
+            document.getElementById('customPicker').style.display = 'none';
+            log("Système réinitialisé. Prêt pour de nouvelles sélections.", "WARNING");
         }
 
         function checkSimulationReady() {
             if (driveFiles.length > 0 && localFiles.length > 0) {
                 document.getElementById('btnSimul').disabled = false;
+            } else {
+                document.getElementById('btnSimul').disabled = true;
             }
         }
 
         function renderPaneSafe(id, filesArray) {
             const container = document.getElementById(id);
             container.innerHTML = ''; 
-
-            if (filesArray.length === 0) {
-                container.innerHTML = "<em>Aucun fichier trouvé.</em>";
-                return;
-            }
-
+            if (filesArray.length === 0) { container.innerHTML = "<em>Aucun fichier trouvé.</em>"; return; }
             const fragment = document.createDocumentFragment();
             filesArray.forEach(f => {
                 const div = document.createElement('div');
-                div.style.borderBottom = '1px solid #eee';
-                div.style.padding = '2px 0';
-                
+                div.style.borderBottom = '1px solid #eee'; div.style.padding = '2px 0';
                 const iconText = document.createTextNode('📄 ' + f.name + ' ');
-                const span = document.createElement('span');
-                span.className = 'path-text';
-                span.textContent = '(/'+ f.fullPath +')';
-
-                div.appendChild(iconText);
-                div.appendChild(span);
-                fragment.appendChild(div);
+                const span = document.createElement('span'); span.className = 'path-text'; span.textContent = '(/'+ f.fullPath +')';
+                div.appendChild(iconText); div.appendChild(span); fragment.appendChild(div);
             });
             container.appendChild(fragment);
         }
 
-        // ============================================================================
-        // --- MOTEUR 1 : CLOUD (Google Drive) ---
-        // ============================================================================
+        // --- MOTEUR 1 : CLOUD ---
         async function loadDriveFolders() {
             log("Interrogation du Drive...", "PROCESS");
             try {
-                let allFolders = [];
-                let pageToken = null;
+                let allFolders = []; let pageToken = null;
                 do {
                     const res = await gapi.client.drive.files.list({
                         q: "mimeType='application/vnd.google-apps.folder' and trashed=false",
-                        fields: 'nextPageToken, files(id, name)',
-                        pageSize: 1000, orderBy: 'name', pageToken: pageToken
+                        fields: 'nextPageToken, files(id, name)', pageSize: 1000, orderBy: 'name', pageToken: pageToken
                     });
                     if (res.result.files) allFolders = allFolders.concat(res.result.files);
                     pageToken = res.result.nextPageToken;
                 } while (pageToken); 
-
                 const select = document.getElementById('driveFolderSelect');
                 select.innerHTML = allFolders.map(f => `<option value="${f.id}">📁 ${f.name}</option>`).join('');
                 document.getElementById('customPicker').style.display = 'block';
-                log(`${allFolders.length} dossiers racines trouvés.`, "SUCCESS");
-            } catch (err) { log(translateError(err), "ERROR"); }
+            } catch (err) { log("Erreur Cloud: Vérifiez votre connexion.", "ERROR"); }
         }
 
         async function confirmFolderSelection() {
             const select = document.getElementById('driveFolderSelect');
             targetFolderId = select.value;
             const folderName = select.options[select.selectedIndex].text.replace('📁 ', '');
+            
+            // UI Update (Remplace l'accumulation)
+            document.getElementById('td-drive').innerText = `[Drive] /${folderName}`;
             document.getElementById('customPicker').style.display = 'none';
-            document.getElementById('targetInfo').innerText += ` | ☁️ Cible : ${folderName}`;
-            driveFiles = [];
+            
+            driveFiles = []; // Purge vitale
             document.getElementById('pane-drive').innerHTML = "<em>Exploration en cours...</em>";
             
             await scanDriveRecursive(targetFolderId, "");
@@ -190,24 +195,15 @@
                 do {
                     const res = await gapi.client.drive.files.list({
                         q: `'${folderId}' in parents and trashed = false`,
-                        // AJOUT DE modifiedTime POUR LE COMPARATEUR
                         fields: 'nextPageToken, files(id, name, size, mimeType, modifiedTime)',
                         pageSize: 1000, pageToken: pageToken
                     });
-
                     const items = res.result.files || [];
                     const files = items.filter(i => i.mimeType !== 'application/vnd.google-apps.folder');
                     files.forEach(f => {
                         const fullPath = currentPath === "" ? f.name : `${currentPath}/${f.name}`;
-                        driveFiles.push({ 
-                            id: f.id, 
-                            name: f.name, 
-                            fullPath: fullPath, 
-                            size: parseInt(f.size) || 0,
-                            modifiedTime: new Date(f.modifiedTime).getTime() // Conversion en Millisecondes
-                        });
+                        driveFiles.push({ id: f.id, name: f.name, fullPath: fullPath, size: parseInt(f.size) || 0, modifiedTime: new Date(f.modifiedTime).getTime() });
                     });
-
                     const subFolders = items.filter(i => i.mimeType === 'application/vnd.google-apps.folder');
                     for (const folder of subFolders) {
                         const nextPath = currentPath === "" ? folder.name : `${currentPath}/${folder.name}`;
@@ -215,18 +211,19 @@
                     }
                     pageToken = res.result.nextPageToken;
                 } while (pageToken);
-            } catch (err) { log(`Erreur Cloud (/${currentPath}): ${translateError(err)}`, "ERROR"); }
+            } catch (err) { log(`Erreur de lecture Cloud (/${currentPath})`, "ERROR"); }
         }
 
-        // ============================================================================
         // --- MOTEUR 2 : DISQUE LOCAL ---
-        // ============================================================================
         async function initLocalScan() {
             try {
                 const directoryHandle = await window.showDirectoryPicker({ mode: 'read' });
+                
+                // UI Update (Remplace l'accumulation)
+                document.getElementById('td-local').innerText = `[PC] /${directoryHandle.name}`;
                 document.getElementById('pane-local').innerHTML = "<em>Exploration locale en cours...</em>";
-                document.getElementById('targetInfo').innerText += ` | 💾 Cible : ${directoryHandle.name}`;
-                localFiles = [];
+                
+                localFiles = []; // Purge vitale
                 
                 await scanLocalRecursive(directoryHandle, "");
                 renderPaneSafe('pane-local', localFiles);
@@ -243,12 +240,7 @@
                     const fullPath = currentPath === "" ? entry.name : `${currentPath}/${entry.name}`;
                     if (entry.kind === 'file') {
                         const fileData = await entry.getFile();
-                        localFiles.push({
-                            name: entry.name,
-                            fullPath: fullPath,
-                            size: fileData.size,
-                            lastModified: fileData.lastModified // Déjà en Millisecondes
-                        });
+                        localFiles.push({ name: entry.name, fullPath: fullPath, size: fileData.size, lastModified: fileData.lastModified });
                     } else if (entry.kind === 'directory') {
                         await scanLocalRecursive(entry, fullPath);
                     }
@@ -256,73 +248,40 @@
             } catch (err) { log(`Accès refusé par l'OS pour /${currentPath}`, "ERROR"); }
         }
 
-        // ============================================================================
-        // --- MOTEUR 3 : LE CERVEAU DIFFÉRENTIEL (Mono-directionnel Cloud -> Local) ---
-        // ============================================================================
+        // --- MOTEUR 3 : LE CERVEAU DIFFÉRENTIEL ---
         function runSimulation() {
-            log("--- DÉBUT DE LA SIMULATION MONO-DIRECTIONNELLE ---", "SIMUL");
-            
-            let toDownload = [];
-            let toUpdate = [];
-            let identical = [];
-            let orphans = []; // Fichiers locaux inconnus du Cloud (ex: les "(1)")
+            log("--- DÉBUT DE LA SIMULATION ---", "SIMUL");
+            let toDownload = []; let toUpdate = []; let identical = []; let orphans = [];
 
-            // 1. On parcourt le Cloud (La source de vérité)
             driveFiles.forEach(cloudFile => {
-                // On cherche l'équivalent local via le chemin strict
                 const localFile = localFiles.find(lf => lf.fullPath === cloudFile.fullPath);
-
-                if (!localFile) {
-                    toDownload.push(cloudFile); // N'existe pas en local
-                } else {
-                    // Comparaison : Le fichier Cloud est-il plus récent ? (Marge de 2 secondes pour tolérance système de fichiers)
-                    if (cloudFile.modifiedTime > (localFile.lastModified + 2000)) {
-                        toUpdate.push(cloudFile);
-                    } else {
-                        identical.push(cloudFile);
-                    }
+                if (!localFile) { toDownload.push(cloudFile); } 
+                else {
+                    if (cloudFile.modifiedTime > (localFile.lastModified + 2000)) { toUpdate.push(cloudFile); } 
+                    else { identical.push(cloudFile); }
                 }
             });
 
-            // 2. On cherche les "Orphelins" locaux (Les fichiers qui n'existent pas sur le Cloud)
             localFiles.forEach(localFile => {
                 const cloudFile = driveFiles.find(df => df.fullPath === localFile.fullPath);
                 if (!cloudFile) orphans.push(localFile);
             });
 
-            // 3. Affichage du Rapport UI
             document.getElementById('diffStats').innerHTML = 
                 `<span style="color:var(--purple)">⬇️ ${toDownload.length} à télécharger</span> | 
                  <span style="color:var(--info)">🔄 ${toUpdate.length} à mettre à jour</span> | 
-                 <span style="color:var(--warning)">⚠️ ${orphans.length} orphelins locaux</span> | 
+                 <span style="color:var(--warning)">⚠️ ${orphans.length} orphelins (ex: doublons locaux)</span> | 
                  <span style="color:var(--success)">✅ ${identical.length} identiques</span>`;
 
-            // Logs détaillés
-            if (toDownload.length > 0) log(`${toDownload.length} fichier(s) manquent en local et doivent être téléchargés.`, "SIMUL");
-            if (toUpdate.length > 0) log(`${toUpdate.length} fichier(s) locaux sont obsolètes et doivent être écrasés par la version Cloud.`, "SIMUL");
-            if (orphans.length > 0) log(`Attention: ${orphans.length} fichier(s) existent sur votre PC mais pas sur le Cloud (Potentiels doublons). Le script n'y touchera pas.`, "WARNING");
-
+            if (toDownload.length > 0) log(`${toDownload.length} fichier(s) manquent en local.`, "SIMUL");
+            if (toUpdate.length > 0) log(`${toUpdate.length} fichier(s) locaux sont obsolètes.`, "SIMUL");
+            if (orphans.length > 0) log(`Attention: ${orphans.length} fichier(s) locaux n'existent pas sur le Cloud.`, "WARNING");
             log("--- FIN DE LA SIMULATION ---", "SIMUL");
         }
 
         // --- AUTHENTIFICATION ---
-        function gapiLoaded() {
-            gapi.load('client', async () => {
-                await gapi.client.init({ apiKey: API_KEY, discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'] });
-                log("Moteur Google API initialisé avec succès.", "SYSTEM");
-            });
-        }
-        function gisLoaded() {
-            tokenClient = google.accounts.oauth2.initTokenClient({
-                client_id: CLIENT_ID, scope: SCOPES,
-                callback: (res) => {
-                    if (res.error) { log("Refus d'accès : " + res.error, "ERROR"); return; }
-                    accessToken = res.access_token;
-                    document.getElementById('btnPicker').disabled = false;
-                    log("Connexion sécurisée établie.", "SUCCESS");
-                }
-            });
-        }
+        function gapiLoaded() { gapi.load('client', async () => { await gapi.client.init({ apiKey: API_KEY, discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'] }); log("Google API OK.", "SYSTEM"); }); }
+        function gisLoaded() { tokenClient = google.accounts.oauth2.initTokenClient({ client_id: CLIENT_ID, scope: SCOPES, callback: (res) => { if (res.error) return; accessToken = res.access_token; document.getElementById('btnPicker').disabled = false; log("Connexion OK.", "SUCCESS"); } }); }
         function handleAuthClick() { tokenClient.requestAccessToken(); }
     </script>
 </body>
