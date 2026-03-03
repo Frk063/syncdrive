@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <title>SyncDrive Pro v1.5.2 - Sécurité & Audit</title>
+    <title>SyncDrive Pro v1.5.3 - Audit & UX</title>
     <style>
         :root { --primary: #2c3e50; --error: #c0392b; --success: #27ae60; --warning: #f39c12; --info: #2980b9; --purple: #8e44ad; }
         body { font-family: 'Segoe UI', sans-serif; margin: 20px; background: #f4f7f6; color: var(--primary); }
@@ -38,7 +38,7 @@
 </head>
 <body>
 
-    <h2><span id="connStatus" class="status-dot" title="Déconnecté"></span> 📦 SyncDrive Pro <small>v1.5.2</small></h2>
+    <h2><span id="connStatus" class="status-dot" title="Déconnecté"></span> 📦 SyncDrive Pro <small>v1.5.3</small></h2>
     
     <div id="setup">
         <strong>1. Connexion & Sélection :</strong><br>
@@ -46,9 +46,9 @@
         <button id="btnRevoke" class="btn-red" onclick="handleRevokeClick()" style="display:none;">🔴 Déconnexion</button>
         <button id="btnPicker" class="btn-blue" onclick="loadDriveFolders()" disabled>📁 2. Choisir Dossier Cloud</button>
         <button class="btn-blue" onclick="initLocalScan()">💾 3. Choisir Dossier Local</button>
-        <button class="btn-orange" onclick="resetApp()" style="float: right;">🔄 Réinitialiser les sélections</button>
+        <button class="btn-orange" onclick="resetApp()" style="float: right;">🔄 Réinitialiser</button>
 
-        <span class="info-text">ℹ️ <strong>Règle de filtrage :</strong> Les fichiers système (.ini, .lnk, .url, Thumbs.db, .DS_Store...) et les fichiers cachés (commençant par un point) sont systématiquement ignorés par sécurité.</span>
+        <span class="info-text">ℹ️ <strong>Règle de filtrage :</strong> Les fichiers système (.ini, .url...), les fichiers cachés et les documents virtuels Google Docs/Sheets sont systématiquement ignorés par sécurité.</span>
 
         <table class="routing-table">
             <tr><th>☁️ Source (Google Drive)</th><th>💾 Cible (Disque Local)</th></tr>
@@ -64,7 +64,7 @@
 
     <div id="controls">
         <strong>2. Analyse :</strong><br>
-        <button id="btnSimul" class="btn-blue" onclick="runSimulation()" disabled>📋 Lancer la Simulation (Différentiel)</button>
+        <button id="btnSimul" class="btn-blue" onclick="runSimulation()" disabled>📋 Lancer la Simulation</button>
         <button id="btnReport" class="btn-red" onclick="generateCSVReport()" style="display:none; float:right;">⚠️ Fichiers ignorés (CSV)</button>
         <span id="diffStats" style="margin-left:15px; font-weight: bold;"></span>
     </div>
@@ -95,11 +95,10 @@
 
         let targetFolderId = null;
         let driveFiles = []; let localFiles = [];
-        let ignoredFiles = []; // Tableau de quarantaine
+        let ignoredFiles = []; 
         let tokenClient; let accessToken = null;
         let isConnected = false;
 
-        // LA BLOCKLIST (En minuscules pour faciliter la comparaison)
         const BLOCKLIST = ['.url', '.lnk', '.ini', '.desktop', '.ds_store', 'thumbs.db'];
 
         function log(msg, type='INFO') {
@@ -114,27 +113,19 @@
             l.scrollTop = l.scrollHeight;
         }
 
-        // --- BOUCLIER ANTI-FERMETURE ---
         window.addEventListener('beforeunload', (e) => {
             if (isConnected) {
-                e.preventDefault();
-                e.returnValue = "Vous êtes connecté. Voulez-vous vraiment quitter sans vous déconnecter proprement ?";
+                e.preventDefault(); e.returnValue = "Vous êtes connecté. Quitter sans déconnexion ?";
             }
         });
 
-        // --- FONCTION DE FILTRAGE ---
         function isFileIgnored(fileName) {
             const nameLower = fileName.toLowerCase();
-            // Ignore les fichiers cachés (commençant par .) sauf s'il n'y a pas de nom (ex: .htaccess, à voir selon besoin)
             if (fileName.startsWith('.') && fileName.length > 1) return true;
-            // Vérifie les extensions et noms stricts
-            for (let ext of BLOCKLIST) {
-                if (nameLower.endsWith(ext) || nameLower === ext) return true;
-            }
+            for (let ext of BLOCKLIST) { if (nameLower.endsWith(ext) || nameLower === ext) return true; }
             return false;
         }
 
-        // --- UI : RÉINITIALISATION ---
         function resetApp() {
             driveFiles = []; localFiles = []; ignoredFiles = []; targetFolderId = null;
             document.getElementById('td-drive').innerText = "En attente...";
@@ -163,18 +154,14 @@
             container.appendChild(fragment);
         }
 
-        // --- UI : GESTION BOUTON RAPPORT ---
         function checkIgnoredFiles() {
             const btn = document.getElementById('btnReport');
             if (ignoredFiles.length > 0) {
                 btn.style.display = 'inline-block';
-                btn.innerText = `⚠️ ${ignoredFiles.length} Fichier(s) Ignoré(s) - Voir Rapport`;
-            } else {
-                btn.style.display = 'none';
-            }
+                btn.innerText = `⚠️ ${ignoredFiles.length} Fichier(s) Ignoré(s)`;
+            } else { btn.style.display = 'none'; }
         }
 
-        // --- MOTEUR 1 : CLOUD ---
         async function loadDriveFolders() {
             log("Interrogation du Drive...", "PROCESS");
             try {
@@ -217,16 +204,24 @@
                     });
                     const items = res.result.files || [];
                     const files = items.filter(i => i.mimeType !== 'application/vnd.google-apps.folder');
+                    
                     files.forEach(f => {
                         const fullPath = currentPath === "" ? f.name : `${currentPath}/${f.name}`;
                         const fileObj = { name: f.name, fullPath: fullPath, size: parseInt(f.size) || 0, modifiedTime: new Date(f.modifiedTime).getTime() };
                         
-                        if (isFileIgnored(f.name)) {
-                            fileObj.source = 'CLOUD'; ignoredFiles.push(fileObj);
+                        // v1.5.3 - Classification avancée
+                        let isGoogleDoc = f.mimeType && f.mimeType.startsWith('application/vnd.google-apps.');
+                        let isBlockedSys = isFileIgnored(f.name);
+
+                        if (isBlockedSys || isGoogleDoc) {
+                            fileObj.source = 'CLOUD'; 
+                            fileObj.reason = isGoogleDoc ? "Document Cloud (Non copiable)" : "Sécurité (Fichier restreint)";
+                            ignoredFiles.push(fileObj);
                         } else {
                             driveFiles.push({ id: f.id, ...fileObj });
                         }
                     });
+
                     const subFolders = items.filter(i => i.mimeType === 'application/vnd.google-apps.folder');
                     for (const folder of subFolders) {
                         const nextPath = currentPath === "" ? folder.name : `${currentPath}/${folder.name}`;
@@ -237,7 +232,6 @@
             } catch (err) { log(`Erreur de lecture Cloud (/${currentPath})`, "ERROR"); }
         }
 
-        // --- MOTEUR 2 : DISQUE LOCAL ---
         async function initLocalScan() {
             try {
                 const directoryHandle = await window.showDirectoryPicker({ mode: 'read' });
@@ -261,7 +255,9 @@
                         const fileObj = { name: entry.name, fullPath: fullPath, size: fileData.size, lastModified: fileData.lastModified };
                         
                         if (isFileIgnored(entry.name)) {
-                            fileObj.source = 'LOCAL'; ignoredFiles.push(fileObj);
+                            fileObj.source = 'LOCAL'; 
+                            fileObj.reason = "Sécurité (Fichier restreint)";
+                            ignoredFiles.push(fileObj);
                         } else {
                             localFiles.push(fileObj);
                         }
@@ -272,7 +268,6 @@
             } catch (err) { log(`Accès refusé par l'OS pour /${currentPath}`, "ERROR"); }
         }
 
-        // --- MOTEUR 3 : SIMULATION ---
         function runSimulation() {
             log("--- DÉBUT SIMULATION ---", "SIMUL");
             let toDownload = []; let toUpdate = []; let identical = []; let orphans = [];
@@ -284,46 +279,72 @@
             localFiles.forEach(l => { if (!driveFiles.find(df => df.fullPath === l.fullPath)) orphans.push(l); });
 
             document.getElementById('diffStats').innerHTML = `<span style="color:var(--purple)">⬇️ ${toDownload.length} dl</span> | <span style="color:var(--info)">🔄 ${toUpdate.length} maj</span> | <span style="color:var(--warning)">⚠️ ${orphans.length} orphelins</span> | <span style="color:var(--success)">✅ ${identical.length} ok</span>`;
-            log("Simulation terminée. Voir les logs complets dans la console si besoin.", "SUCCESS");
+            log("Simulation terminée. Voir les stats.", "SUCCESS");
         }
 
-        // --- MÉCANIQUE DU RAPPORT CSV ---
+        // --- MOTEUR CSV & DASHBOARD (v1.5.3) ---
         function generateCSVReport() {
             if (ignoredFiles.length === 0) return;
             log("Génération du rapport CSV d'audit...", "PROCESS");
             
-            // Construction du contenu CSV (Avec BOM UTF-8 pour Excel)
             const bom = "\uFEFF";
-            let csvContent = "Emplacement|Chemin Complet|Nom Fichier|Taille (Ko)|Date de Modification\n";
+            let csvContent = "Emplacement|Chemin Complet|Nom Fichier|Taille (Ko)|Date de Modification|Motif d'exclusion\n";
             
+            let countCloud = 0; let countSecurity = 0;
+
             ignoredFiles.forEach(f => {
-                const source = f.source;
-                const path = f.fullPath;
-                const name = f.name;
-                const sizeKo = (f.size / 1024).toFixed(2);
+                if (f.reason === "Document Cloud (Non copiable)") countCloud++;
+                else countSecurity++;
+
+                const sizeKo = f.size ? (f.size / 1024).toFixed(2) : "0.00";
                 const dateModif = new Date(f.modifiedTime || f.lastModified).toLocaleString('fr-FR');
-                csvContent += `${source}|${path}|${name}|${sizeKo}|${dateModif}\n`;
+                csvContent += `${f.source}|${f.fullPath}|${f.name}|${sizeKo}|${dateModif}|${f.reason}\n`;
             });
 
-            // Création du fichier téléchargeable en mémoire
             const blob = new Blob([bom + csvContent], { type: 'text/csv;charset=utf-8;' });
             const url = URL.createObjectURL(blob);
 
-            // Création d'une nouvelle page (Onglet) dynamique pour l'affichage
             const newWindow = window.open('', '_blank');
             newWindow.document.write(`
-                <html><head><title>Rapport d'Audit - Fichiers Ignorés</title>
-                <style>body{font-family:sans-serif; padding:20px; background:#f4f7f6; color:#2c3e50;} 
-                table{width:100%; border-collapse:collapse; background:white;} 
-                th,td{padding:8px; border:1px solid #bdc3c7; text-align:left;} 
-                th{background:#2980b9; color:white;}
-                button{padding:10px 15px; background:#27ae60; color:white; border:none; border-radius:4px; font-weight:bold; cursor:pointer; margin-bottom:20px; font-size:16px;}</style>
+                <html><head><title>Rapport d'Audit - Fichiers Ignorés (v1.5.3)</title>
+                <style>
+                    body{font-family:'Segoe UI', sans-serif; padding:20px; background:#f4f7f6; color:#2c3e50;} 
+                    table{width:100%; border-collapse:collapse; background:white; font-size:14px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);} 
+                    th,td{padding:10px; border:1px solid #bdc3c7; text-align:left;} 
+                    th{background:#2c3e50; color:white;}
+                    .reason-cloud { color: #8e44ad; font-weight: bold; }
+                    .reason-sec { color: #c0392b; font-weight: bold; }
+                    button{padding:10px 15px; background:#27ae60; color:white; border:none; border-radius:4px; font-weight:bold; cursor:pointer; margin-bottom:20px; font-size:16px; transition: 0.3s;}
+                    button:hover{background:#219653;}
+                    .stats-box { background: white; padding: 20px; border-left: 5px solid #e74c3c; margin-bottom: 20px; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+                    .stats-box ul { list-style-type: none; padding-left: 0; margin-bottom: 0; }
+                    .stats-box li { margin-bottom: 8px; font-size: 15px; }
+                    .big-num { font-size: 18px; font-weight: bold; color: #2c3e50; }
+                </style>
+                <script>
+                    setInterval(() => {
+                        if (!window.opener || window.opener.closed) {
+                            document.body.innerHTML = "<div style='display:flex; height:100vh; align-items:center; justify-content:center; text-align:center;'><div style='background:white; padding:40px; border-radius:8px; box-shadow:0 4px 15px rgba(0,0,0,0.2);'><h2 style='color:#c0392b;'>🔒 Mesure de Sécurité Activée</h2><p>L'application principale a été fermée ou déconnectée.<br>Par mesure de confidentialité (Zero Trust), ce rapport a été neutralisé.</p></div></div>";
+                        }
+                    }, 1000);
+                <\\/script>
                 </head><body>
-                <h2>⚠️ Audit de Sécurité : ${ignoredFiles.length} Fichier(s) Ignoré(s)</h2>
-                <p>Ces fichiers n'ont pas été pris en compte dans la synchronisation (fichiers système ou cachés).</p>
-                <a href="${url}" download="SyncDrive_Audit_Ignores.csv"><button>📥 Télécharger le fichier CSV</button></a>
-                <table><tr><th>Emplacement</th><th>Chemin</th><th>Fichier</th><th>Poids (Ko)</th><th>Dernière Modif.</th></tr>
-                ${ignoredFiles.map(f => `<tr><td>${f.source}</td><td>${f.fullPath}</td><td>${f.name}</td><td>${(f.size/1024).toFixed(2)}</td><td>${new Date(f.modifiedTime || f.lastModified).toLocaleString('fr-FR')}</td></tr>`).join('')}
+                <h2>⚠️ Audit de Sécurité : Synthèse des exclusions</h2>
+                
+                <div class="stats-box">
+                    <strong>📊 Statistiques du filtrage :</strong>
+                    <ul>
+                        <li>Total des fichiers ignorés : <span class="big-num">${ignoredFiles.length}</span></li>
+                        <li>Fichiers "copiables" bloqués par sécurité (.url, .ini, système) : <span class="big-num" style="color:#c0392b">${countSecurity}</span></li>
+                        <li>Documents virtuels Cloud (Google Docs/Sheets/Slides) : <span class="big-num" style="color:#8e44ad">${countCloud}</span></li>
+                    </ul>
+                </div>
+
+                <a href="${url}" download="SyncDrive_Audit_Ignores_v1.5.3.csv"><button>📥 Télécharger le fichier CSV</button></a>
+                
+                <table>
+                    <tr><th>Emplacement</th><th>Chemin</th><th>Fichier</th><th>Poids (Ko)</th><th>Dernière Modif.</th><th>Motif d'exclusion</th></tr>
+                    ${ignoredFiles.map(f => `<tr><td>${f.source}</td><td>${f.fullPath}</td><td>${f.name}</td><td>${f.size ? (f.size/1024).toFixed(2) : "0.00"}</td><td>${new Date(f.modifiedTime || f.lastModified).toLocaleString('fr-FR')}</td><td><span class="${f.reason.includes('Cloud') ? 'reason-cloud' : 'reason-sec'}">${f.reason}</span></td></tr>`).join('')}
                 </table></body></html>
             `);
             newWindow.document.close();
@@ -333,29 +354,20 @@
         function gapiLoaded() { gapi.load('client', async () => { await gapi.client.init({ apiKey: API_KEY, discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/drive/v3/rest'] }); log("API Prête.", "SYSTEM"); }); }
         function gisLoaded() { tokenClient = google.accounts.oauth2.initTokenClient({ client_id: CLIENT_ID, scope: SCOPES, callback: (res) => { 
             if (res.error) return; 
-            accessToken = res.access_token; 
-            isConnected = true;
-            document.getElementById('connStatus').className = "status-dot connected";
-            document.getElementById('connStatus').title = "Connecté à Google Drive";
-            document.getElementById('btnAuth').style.display = 'none';
-            document.getElementById('btnRevoke').style.display = 'inline-block';
-            document.getElementById('btnPicker').disabled = false; 
-            log("Connexion sécurisée établie.", "SUCCESS"); 
+            accessToken = res.access_token; isConnected = true;
+            document.getElementById('connStatus').className = "status-dot connected"; document.getElementById('connStatus').title = "Connecté à Google Drive";
+            document.getElementById('btnAuth').style.display = 'none'; document.getElementById('btnRevoke').style.display = 'inline-block';
+            document.getElementById('btnPicker').disabled = false; log("Connexion sécurisée établie.", "SUCCESS"); 
         }}); }
         function handleAuthClick() { tokenClient.requestAccessToken(); }
         
         function handleRevokeClick() {
             if (accessToken) {
                 google.accounts.oauth2.revoke(accessToken, () => {
-                    accessToken = null;
-                    isConnected = false;
-                    document.getElementById('connStatus').className = "status-dot";
-                    document.getElementById('connStatus').title = "Déconnecté";
-                    document.getElementById('btnAuth').style.display = 'inline-block';
-                    document.getElementById('btnRevoke').style.display = 'none';
-                    document.getElementById('btnPicker').disabled = true;
-                    resetApp();
-                    log("Déconnexion réussie. Jeton révoqué.", "SUCCESS");
+                    accessToken = null; isConnected = false;
+                    document.getElementById('connStatus').className = "status-dot"; document.getElementById('connStatus').title = "Déconnecté";
+                    document.getElementById('btnAuth').style.display = 'inline-block'; document.getElementById('btnRevoke').style.display = 'none';
+                    document.getElementById('btnPicker').disabled = true; resetApp(); log("Déconnexion réussie. Jeton révoqué.", "SUCCESS");
                 });
             }
         }
