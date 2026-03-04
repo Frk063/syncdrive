@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <title>SyncDrive Pro v1.6.2 - Synchro Puriste</title>
+    <title>SyncDrive Pro v1.6.3 - Synchro Puriste</title>
     <style>
         :root { --primary: #2c3e50; --error: #c0392b; --success: #27ae60; --warning: #f39c12; --info: #2980b9; --purple: #8e44ad; }
         body { font-family: 'Segoe UI', sans-serif; margin: 20px; background: #f4f7f6; color: var(--primary); }
@@ -41,7 +41,7 @@
 </head>
 <body>
 
-    <h2><span id="connStatus" class="status-dot" title="Déconnecté"></span> 📦 SyncDrive Pro <small>v1.6.2</small></h2>
+    <h2><span id="connStatus" class="status-dot" title="Déconnecté"></span> 📦 SyncDrive Pro <small>v1.6.3</small></h2>
     
     <div id="setup">
         <strong>1. Connexion & Sélection :</strong><br>
@@ -67,11 +67,10 @@
 
     <div id="archive-box">
         <strong>🗑️ Corbeille de Sécurité :</strong><br>
-        <span class="info-text" style="color:#2c3e50; margin-top:5px; margin-bottom:10px;">
+        <span class="info-text" style="color:#2c3e50; margin-top:5px; margin-bottom:5px;">
             Pour garantir un clone parfait, les fichiers absents du Cloud (Orphelins) sont retirés de l'arborescence locale.<br> 
             Ils ne sont pas supprimés définitivement, mais déplacés dans un dossier caché <code>_SyncDrive_Archives</code> pour éviter toute perte de données accidentelle.
         </span>
-        <button id="btnEmptyArchive" class="btn-red" onclick="emptyArchive()" disabled>🧹 Vider l'Archive Locale</button>
     </div>
 
     <div id="controls">
@@ -91,6 +90,7 @@
     <div style="display:flex; justify-content:space-between; align-items:flex-end; margin-top:20px;">
         <strong style="font-size: 14px;">🖥️ Console d'Activité :</strong>
         <div>
+            <button id="btnEmptyArchive" class="btn-red" onclick="emptyArchive()" style="display:none; margin:0 5px 0 0;">🧹 Vider l'Archive Locale</button>
             <button id="btnArchiveLog" class="btn-orange" onclick="downloadArchiveCSV()" style="display:none; margin:0 5px 0 0;">📥 Registre des suppressions (CSV)</button>
             <button id="btnErrorLog" class="btn-red" onclick="downloadErrorCSV()" style="display:none; margin:0;">📥 Log d'Erreurs (CSV)</button>
         </div>
@@ -118,14 +118,13 @@
         let driveFiles = []; let localFiles = [];
         let ignoredFiles = []; 
         let syncErrors = []; 
-        let archiveLogs = []; // Registre des orphelins déplacés
+        let archiveLogs = []; 
         
         let localRootDirHandle = null; 
         let tokenClient; let accessToken = null;
         let isConnected = false;
         let isSyncing = false;
 
-        // On ajoute le dossier fantôme à la blocklist pour le rendre invisible au scanner
         const BLOCKLIST = ['.url', '.lnk', '.ini', '.desktop', '.ds_store', 'thumbs.db', '_syncdrive_archives'];
 
         function escapeHTML(str) {
@@ -172,7 +171,7 @@
             document.getElementById('diffStats').innerHTML = "";
             document.getElementById('btnSimul').disabled = true;
             document.getElementById('btnSync').disabled = true;
-            document.getElementById('btnEmptyArchive').disabled = true;
+            document.getElementById('btnEmptyArchive').style.display = 'none';
             document.getElementById('btnReport').style.display = 'none';
             document.getElementById('btnErrorLog').style.display = 'none';
             document.getElementById('btnArchiveLog').style.display = 'none';
@@ -281,9 +280,9 @@
             if(!localRootDirHandle) return;
             try {
                 await localRootDirHandle.getDirectoryHandle('_SyncDrive_Archives');
-                document.getElementById('btnEmptyArchive').disabled = false;
+                document.getElementById('btnEmptyArchive').style.display = 'inline-block';
             } catch(e) {
-                document.getElementById('btnEmptyArchive').disabled = true;
+                document.getElementById('btnEmptyArchive').style.display = 'none';
             }
         }
 
@@ -296,7 +295,7 @@
                 await scanLocalRecursive(localRootDirHandle, localRootDirHandle.name);
                 renderPaneSafe('pane-local', localFiles);
                 checkIgnoredFiles();
-                checkArchiveExists();
+                await checkArchiveExists();
                 log(`Scan Local OK : ${localFiles.length} fichiers retenus.`, "SUCCESS");
                 if(driveFiles.length > 0 && localFiles.length > 0) document.getElementById('btnSimul').disabled = false;
             } catch (err) { if (err.name !== 'AbortError') log(`Erreur locale : ${err.message}`, "ERROR"); }
@@ -308,12 +307,9 @@
                     const fullPath = currentPath === "" ? entry.name : `${currentPath}/${entry.name}`;
                     if (entry.kind === 'file') {
                         const fileData = await entry.getFile();
-                        // v1.6.2 - On garde les pointeurs parentDirHandle et fileHandle en mémoire pour faciliter la suppression !
                         const fileObj = { name: entry.name, fullPath: fullPath, size: fileData.size, lastModified: fileData.lastModified, fileHandle: entry, parentDirHandle: dirHandle };
                         
-                        if (isFileIgnored(entry.name)) {
-                            // On ne met pas l'archive dans le CSV quarantaine pour ne pas polluer, c'est un dossier caché système.
-                        } else {
+                        if (!isFileIgnored(entry.name)) {
                             localFiles.push(fileObj);
                         }
                     } else if (entry.kind === 'directory') {
@@ -340,7 +336,6 @@
             
             localFiles.forEach(l => { if (!driveFiles.find(df => df.fullPath === l.fullPath)) globalOrphans.push(l); });
 
-            // Terminologie v1.6.2
             document.getElementById('diffStats').innerHTML = `<span style="color:var(--purple)">⬇️ ${globalToDownload.length} Nouveaux</span> | <span style="color:var(--info)">🔄 ${globalToUpdate.length} Mises à jour</span> | <span style="color:var(--warning)">⚠️ ${globalOrphans.length} À Archiver</span> | <span style="color:var(--success)">✅ ${identical.length} Identiques</span>`;
             
             const totalAction = globalToDownload.length + globalToUpdate.length + globalOrphans.length;
@@ -367,7 +362,7 @@
             syncErrors = []; archiveLogs = [];
             document.getElementById('btnSync').disabled = true;
             document.getElementById('btnSimul').disabled = true;
-            document.getElementById('btnEmptyArchive').disabled = true;
+            document.getElementById('btnEmptyArchive').style.display = 'none'; // Caché pendant la synchro
             document.getElementById('btnErrorLog').style.display = 'none';
             document.getElementById('btnArchiveLog').style.display = 'none';
 
@@ -410,17 +405,14 @@
                         const f = globalOrphans[i];
                         try {
                             log(`[ARCHIVE] Déplacement : ${f.name}...`, "WARNING");
-                            // Recrée l'arborescence à l'intérieur de l'archive
                             const archiveDir = await ensureLocalDirectory(archiveRoot, f.fullPath);
                             const newFileHandle = await archiveDir.getFileHandle(f.name, { create: true });
                             const writable = await newFileHandle.createWritable();
                             const fileData = await f.fileHandle.getFile();
                             
-                            // Copie le fichier
                             await writable.write(fileData);
                             await writable.close();
                             
-                            // Supprime l'original
                             await f.parentDirHandle.removeEntry(f.name);
                             
                             countArchived++;
@@ -428,7 +420,7 @@
 
                         } catch (err) {
                             log(`[ERREUR ARCHIVE] ${f.name} : ${err.message}`, "ERROR");
-                            syncErrors.push({ date: new Date().toLocaleString('fr-FR'), file: f.name, path: f.fullPath, error: "Échec du déplacement vers l'archive : " + err.message });
+                            syncErrors.push({ date: new Date().toLocaleString('fr-FR'), file: f.name, path: f.fullPath, error: "Échec de l'archivage : " + err.message });
                         }
                     }
                 } catch (err) { log("Erreur globale lors de l'accès au dossier _SyncDrive_Archives.", "ERROR"); }
@@ -447,7 +439,7 @@
             localFiles = [];
             await scanLocalRecursive(localRootDirHandle, localRootDirHandle.name);
             renderPaneSafe('pane-local', localFiles);
-            checkArchiveExists();
+            await checkArchiveExists(); // Rafraîchit l'affichage du bouton balai
             runSimulation(); 
         }
 
@@ -460,7 +452,7 @@
                     log("Suppression du dossier d'archives...", "WARNING");
                     await localRootDirHandle.removeEntry('_SyncDrive_Archives', { recursive: true });
                     log("Archive purgée avec succès.", "SUCCESS");
-                    checkArchiveExists();
+                    await checkArchiveExists(); // Cachera le bouton
                 } catch(err) {
                     log(`Échec de la suppression : ${err.message}`, "ERROR");
                 }
