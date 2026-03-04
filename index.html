@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <title>SyncDrive Pro v1.5.3 - Audit & UX</title>
+    <title>SyncDrive Pro v1.6.1 - Synchro & Sécurité</title>
     <style>
         :root { --primary: #2c3e50; --error: #c0392b; --success: #27ae60; --warning: #f39c12; --info: #2980b9; --purple: #8e44ad; }
         body { font-family: 'Segoe UI', sans-serif; margin: 20px; background: #f4f7f6; color: var(--primary); }
@@ -15,7 +15,7 @@
         .pane { flex: 1; background: white; border: 1px solid #bdc3c7; border-radius: 4px; }
         .pane-header { background: var(--primary); color: white; padding: 10px; font-weight: bold; text-align: center; }
         .pane-content { height: 350px; overflow-y: auto; padding: 10px; font-family: monospace; font-size: 12px; }
-        .log-container { background: #000; color: #0f0; padding: 10px; height: 150px; overflow-y: scroll; font-size: 11px; margin-top: 20px; line-height: 1.4; }
+        .log-container { background: #000; color: #ecf0f1; padding: 10px; height: 180px; overflow-y: scroll; font-size: 12px; margin-top: 10px; line-height: 1.5; font-family: monospace; }
         
         button { padding: 8px 12px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; margin-right: 5px; margin-top: 5px; transition: background 0.3s; }
         button:hover { filter: brightness(1.1); }
@@ -24,6 +24,7 @@
         .btn-green { background: var(--success); color: white; }
         .btn-orange { background: var(--warning); color: white; }
         .btn-red { background: var(--error); color: white; }
+        .btn-purple { background: var(--purple); color: white; }
         
         #customPicker { display: none; margin-top: 15px; padding: 15px; background: #e8f4f8; border: 1px solid var(--info); border-radius: 4px; }
         select { padding: 8px; width: 100%; max-width: 400px; margin-top: 5px; margin-bottom: 10px; border-radius: 4px; border: 1px solid #bdc3c7; }
@@ -38,7 +39,7 @@
 </head>
 <body>
 
-    <h2><span id="connStatus" class="status-dot" title="Déconnecté"></span> 📦 SyncDrive Pro <small>v1.5.3</small></h2>
+    <h2><span id="connStatus" class="status-dot" title="Déconnecté"></span> 📦 SyncDrive Pro <small>v1.6.1</small></h2>
     
     <div id="setup">
         <strong>1. Connexion & Sélection :</strong><br>
@@ -48,7 +49,7 @@
         <button class="btn-blue" onclick="initLocalScan()">💾 3. Choisir Dossier Local</button>
         <button class="btn-orange" onclick="resetApp()" style="float: right;">🔄 Réinitialiser</button>
 
-        <span class="info-text">ℹ️ <strong>Règle de filtrage :</strong> Les fichiers système (.ini, .url...), les fichiers cachés et les documents virtuels Google Docs/Sheets sont systématiquement ignorés par sécurité.</span>
+        <span class="info-text">ℹ️ <strong>Filtrage Actif :</strong> Fichiers système, Google Docs virtuels, et noms contenant des caractères interdits (\ / : * ? " < > |) sont exclus par sécurité.</span>
 
         <table class="routing-table">
             <tr><th>☁️ Source (Google Drive)</th><th>💾 Cible (Disque Local)</th></tr>
@@ -63,9 +64,11 @@
     </div>
 
     <div id="controls">
-        <strong>2. Analyse :</strong><br>
-        <button id="btnSimul" class="btn-blue" onclick="runSimulation()" disabled>📋 Lancer la Simulation</button>
-        <button id="btnReport" class="btn-red" onclick="generateCSVReport()" style="display:none; float:right;">⚠️ Fichiers ignorés (CSV)</button>
+        <strong>2. Analyse & Exécution :</strong><br>
+        <button id="btnSimul" class="btn-blue" onclick="runSimulation()" disabled>📋 1. Lancer la Simulation</button>
+        <button id="btnSync" class="btn-purple" onclick="executeSync()" disabled>🔥 2. Exécuter la Synchronisation</button>
+        
+        <button id="btnReport" class="btn-red" onclick="generateCSVReport()" style="display:none; float:right;">⚠️ Quarantaine (CSV)</button>
         <span id="diffStats" style="margin-left:15px; font-weight: bold;"></span>
     </div>
 
@@ -74,6 +77,10 @@
         <div class="pane"><div class="pane-header">💾 LOCAL</div><div id="pane-local" class="pane-content">En attente...</div></div>
     </div>
 
+    <div style="display:flex; justify-content:space-between; align-items:flex-end; margin-top:20px;">
+        <strong style="font-size: 14px;">🖥️ Console d'Activité :</strong>
+        <button id="btnErrorLog" class="btn-red" onclick="downloadErrorCSV()" style="display:none; margin:0;">📥 Télécharger le Log d'Erreurs (CSV)</button>
+    </div>
     <div class="log-container" id="logs"></div>
 
     <script async defer src="https://apis.google.com/js/api.js" onload="gapiLoaded()"></script>
@@ -96,26 +103,40 @@
         let targetFolderId = null;
         let driveFiles = []; let localFiles = [];
         let ignoredFiles = []; 
+        let syncErrors = []; 
+        
+        let localRootDirHandle = null; 
         let tokenClient; let accessToken = null;
         let isConnected = false;
+        let isSyncing = false;
 
         const BLOCKLIST = ['.url', '.lnk', '.ini', '.desktop', '.ds_store', 'thumbs.db'];
+
+        // --- FONCTIONS DE SÉCURITÉ ---
+        function escapeHTML(str) {
+            if (!str) return "";
+            return str.replace(/[&<>'"]/g, tag => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
+            }[tag]));
+        }
 
         function log(msg, type='INFO') {
             const l = document.getElementById('logs');
             const time = new Date().toLocaleTimeString();
-            let color = '#0f0'; 
+            let color = '#ecf0f1'; 
             if (type === 'ERROR') color = '#e74c3c';
             if (type === 'WARNING') color = '#f39c12';
             if (type === 'PROCESS') color = '#3498db';
-            if (type === 'SIMUL') color = '#8e44ad';
-            l.innerHTML += `<span style="color:#888;">[${time}]</span> <span style="color:${color};">[${type}]</span> ${msg}<br>`;
+            if (type === 'SUCCESS') color = '#2ecc71';
+            if (type === 'SIMUL') color = '#9b59b6';
+            if (type === 'SYNC') color = '#e67e22';
+            l.innerHTML += `<span style="color:#7f8c8d;">[${time}]</span> <span style="color:${color}; font-weight:bold;">[${type}]</span> <span style="color:${color};">${escapeHTML(msg)}</span><br>`;
             l.scrollTop = l.scrollHeight;
         }
 
         window.addEventListener('beforeunload', (e) => {
-            if (isConnected) {
-                e.preventDefault(); e.returnValue = "Vous êtes connecté. Quitter sans déconnexion ?";
+            if (isConnected || isSyncing) {
+                e.preventDefault(); e.returnValue = "Opération en cours ou session ouverte. Quitter ?";
             }
         });
 
@@ -127,16 +148,19 @@
         }
 
         function resetApp() {
-            driveFiles = []; localFiles = []; ignoredFiles = []; targetFolderId = null;
+            if(isSyncing) return;
+            driveFiles = []; localFiles = []; ignoredFiles = []; syncErrors = []; targetFolderId = null; localRootDirHandle = null;
             document.getElementById('td-drive').innerText = "En attente...";
             document.getElementById('td-local').innerText = "En attente...";
             document.getElementById('pane-drive').innerHTML = "En attente...";
             document.getElementById('pane-local').innerHTML = "En attente...";
             document.getElementById('diffStats').innerHTML = "";
             document.getElementById('btnSimul').disabled = true;
+            document.getElementById('btnSync').disabled = true;
             document.getElementById('btnReport').style.display = 'none';
+            document.getElementById('btnErrorLog').style.display = 'none';
             document.getElementById('customPicker').style.display = 'none';
-            log("Sélections réinitialisées.", "WARNING");
+            log("Mémoire purgée.", "WARNING");
         }
 
         function renderPaneSafe(id, filesArray) {
@@ -158,7 +182,7 @@
             const btn = document.getElementById('btnReport');
             if (ignoredFiles.length > 0) {
                 btn.style.display = 'inline-block';
-                btn.innerText = `⚠️ ${ignoredFiles.length} Fichier(s) Ignoré(s)`;
+                btn.innerText = `⚠️ ${ignoredFiles.length} Quarantaine`;
             } else { btn.style.display = 'none'; }
         }
 
@@ -175,7 +199,7 @@
                     pageToken = res.result.nextPageToken;
                 } while (pageToken); 
                 const select = document.getElementById('driveFolderSelect');
-                select.innerHTML = allFolders.map(f => `<option value="${f.id}">📁 ${f.name}</option>`).join('');
+                select.innerHTML = allFolders.map(f => `<option value="${f.id}">📁 ${escapeHTML(f.name)}</option>`).join('');
                 document.getElementById('customPicker').style.display = 'block';
             } catch (err) { log("Erreur Cloud. Vérifiez la connexion.", "ERROR"); }
         }
@@ -209,13 +233,16 @@
                         const fullPath = currentPath === "" ? f.name : `${currentPath}/${f.name}`;
                         const fileObj = { name: f.name, fullPath: fullPath, size: parseInt(f.size) || 0, modifiedTime: new Date(f.modifiedTime).getTime() };
                         
-                        // v1.5.3 - Classification avancée
+                        // v1.6.1 - Triple filtrage de sécurité (Zero Tolerance)
                         let isGoogleDoc = f.mimeType && f.mimeType.startsWith('application/vnd.google-apps.');
                         let isBlockedSys = isFileIgnored(f.name);
+                        let isIncompatible = /[\\/:*?"<>|]/.test(f.name); 
 
-                        if (isBlockedSys || isGoogleDoc) {
+                        if (isBlockedSys || isGoogleDoc || isIncompatible) {
                             fileObj.source = 'CLOUD'; 
-                            fileObj.reason = isGoogleDoc ? "Document Cloud (Non copiable)" : "Sécurité (Fichier restreint)";
+                            if (isGoogleDoc) fileObj.reason = "Document Cloud (Non copiable)";
+                            else if (isIncompatible) fileObj.reason = "Nom de fichier incompatible";
+                            else fileObj.reason = "Sécurité (Fichier restreint)";
                             ignoredFiles.push(fileObj);
                         } else {
                             driveFiles.push({ id: f.id, ...fileObj });
@@ -234,11 +261,11 @@
 
         async function initLocalScan() {
             try {
-                const directoryHandle = await window.showDirectoryPicker({ mode: 'read' });
-                document.getElementById('td-local').innerText = `[PC] /${directoryHandle.name}`;
+                localRootDirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
+                document.getElementById('td-local').innerText = `[PC] /${localRootDirHandle.name}`;
                 document.getElementById('pane-local').innerHTML = "<em>Exploration locale en cours...</em>";
                 localFiles = []; 
-                await scanLocalRecursive(directoryHandle, directoryHandle.name);
+                await scanLocalRecursive(localRootDirHandle, localRootDirHandle.name);
                 renderPaneSafe('pane-local', localFiles);
                 checkIgnoredFiles();
                 log(`Scan Local OK : ${localFiles.length} fichiers retenus.`, "SUCCESS");
@@ -279,23 +306,112 @@
             localFiles.forEach(l => { if (!driveFiles.find(df => df.fullPath === l.fullPath)) orphans.push(l); });
 
             document.getElementById('diffStats').innerHTML = `<span style="color:var(--purple)">⬇️ ${toDownload.length} dl</span> | <span style="color:var(--info)">🔄 ${toUpdate.length} maj</span> | <span style="color:var(--warning)">⚠️ ${orphans.length} orphelins</span> | <span style="color:var(--success)">✅ ${identical.length} ok</span>`;
-            log("Simulation terminée. Voir les stats.", "SUCCESS");
+            
+            const totalAction = toDownload.length + toUpdate.length;
+            if(totalAction > 0) {
+                document.getElementById('btnSync').disabled = false;
+                log(`Simulation terminée. ${totalAction} fichier(s) prêt(s) pour la synchronisation.`, "SUCCESS");
+            } else {
+                log("Simulation terminée. Les dossiers sont parfaitement synchronisés.", "SUCCESS");
+            }
         }
 
-        // --- MOTEUR CSV & DASHBOARD (v1.5.3) ---
+        // --- MOTEUR v1.6.1 : SYNCHRONISATION ---
+        async function ensureLocalDirectory(rootDirHandle, filePath) {
+            const parts = filePath.split('/');
+            parts.pop(); 
+            parts.shift(); 
+            
+            let currentHandle = rootDirHandle;
+            for (const folderName of parts) {
+                currentHandle = await currentHandle.getDirectoryHandle(folderName, { create: true });
+            }
+            return currentHandle;
+        }
+
+        async function executeSync() {
+            if(isSyncing || !localRootDirHandle) return;
+            isSyncing = true;
+            syncErrors = [];
+            document.getElementById('btnSync').disabled = true;
+            document.getElementById('btnSimul').disabled = true;
+            document.getElementById('btnErrorLog').style.display = 'none';
+
+            let filesToSync = [];
+            driveFiles.forEach(c => {
+                const l = localFiles.find(lf => lf.fullPath === c.fullPath);
+                if (!l || c.modifiedTime > (l.lastModified + 2000)) { filesToSync.push(c); }
+            });
+
+            const total = filesToSync.length;
+            log(`--- DÉMARRAGE DE LA SYNCHRONISATION (${total} fichier(s)) ---`, "SYNC");
+
+            let countSuccess = 0;
+
+            for (let i = 0; i < total; i++) {
+                const f = filesToSync[i];
+                try {
+                    log(`[${i+1}/${total}] Téléchargement : ${f.name} (${(f.size/1024/1024).toFixed(2)} Mo)...`, "PROCESS");
+                    
+                    const response = await fetch(`https://www.googleapis.com/drive/v3/files/${f.id}?alt=media`, {
+                        headers: { 'Authorization': `Bearer ${accessToken}` }
+                    });
+                    
+                    if (!response.ok) throw new Error(`Code HTTP ${response.status} (Accès refusé ou fichier indisponible)`);
+
+                    const dirHandle = await ensureLocalDirectory(localRootDirHandle, f.fullPath);
+
+                    // Écriture : f.name a déjà été validé par le scanner (Zero Tolerance), donc il est 100% sûr pour l'OS.
+                    const fileHandle = await dirHandle.getFileHandle(f.name, { create: true });
+                    const writable = await fileHandle.createWritable(); 
+                    await response.body.pipeTo(writable); 
+
+                    countSuccess++;
+                    log(`[SUCCESS] ${f.name} enregistré.`, "SUCCESS");
+
+                } catch (err) {
+                    let errMsg = err.message;
+                    if (err.name === 'QuotaExceededError') errMsg = "Espace disque local insuffisant !";
+                    log(`[ERREUR] ${f.name} : ${errMsg}`, "ERROR");
+                    
+                    syncErrors.push({ date: new Date().toLocaleString('fr-FR'), file: f.name, path: f.fullPath, error: errMsg });
+
+                    if (err.name === 'QuotaExceededError') {
+                        log("Arrêt d'urgence de la synchronisation pour protéger le système.", "WARNING");
+                        break;
+                    }
+                }
+            }
+
+            log(`--- SYNCHRONISATION TERMINÉE ---`, "SYNC");
+            log(`Bilan : ${countSuccess} succès, ${syncErrors.length} échec(s).`, syncErrors.length === 0 ? "SUCCESS" : "WARNING");
+
+            if (syncErrors.length > 0) {
+                document.getElementById('btnErrorLog').style.display = 'inline-block';
+            }
+
+            isSyncing = false;
+            document.getElementById('btnSimul').disabled = false;
+            
+            log("Mise à jour de l'affichage local...", "PROCESS");
+            localFiles = [];
+            await scanLocalRecursive(localRootDirHandle, localRootDirHandle.name);
+            renderPaneSafe('pane-local', localFiles);
+            runSimulation(); 
+        }
+
+        // --- DASHBOARDS & RAPPORTS ---
         function generateCSVReport() {
             if (ignoredFiles.length === 0) return;
-            log("Génération du rapport CSV d'audit...", "PROCESS");
-            
             const bom = "\uFEFF";
             let csvContent = "Emplacement|Chemin Complet|Nom Fichier|Taille (Ko)|Date de Modification|Motif d'exclusion\n";
+            let countCloud = 0; let countSecurity = 0; let countIncompatible = 0;
             
-            let countCloud = 0; let countSecurity = 0;
-
             ignoredFiles.forEach(f => {
-                if (f.reason === "Document Cloud (Non copiable)") countCloud++;
+                if (f.reason === "Document Cloud (Non copiable)") countCloud++; 
+                else if (f.reason === "Nom de fichier incompatible") countIncompatible++;
                 else countSecurity++;
-
+                
                 const sizeKo = f.size ? (f.size / 1024).toFixed(2) : "0.00";
                 const dateModif = new Date(f.modifiedTime || f.lastModified).toLocaleString('fr-FR');
                 csvContent += `${f.source}|${f.fullPath}|${f.name}|${sizeKo}|${dateModif}|${f.reason}\n`;
@@ -303,10 +419,10 @@
 
             const blob = new Blob([bom + csvContent], { type: 'text/csv;charset=utf-8;' });
             const url = URL.createObjectURL(blob);
-
             const newWindow = window.open('', '_blank');
+            
             newWindow.document.write(`
-                <html><head><title>Rapport d'Audit - Fichiers Ignorés (v1.5.3)</title>
+                <html><head><title>Audit - Quarantaine (v1.6.1)</title>
                 <style>
                     body{font-family:'Segoe UI', sans-serif; padding:20px; background:#f4f7f6; color:#2c3e50;} 
                     table{width:100%; border-collapse:collapse; background:white; font-size:14px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);} 
@@ -314,40 +430,42 @@
                     th{background:#2c3e50; color:white;}
                     .reason-cloud { color: #8e44ad; font-weight: bold; }
                     .reason-sec { color: #c0392b; font-weight: bold; }
-                    button{padding:10px 15px; background:#27ae60; color:white; border:none; border-radius:4px; font-weight:bold; cursor:pointer; margin-bottom:20px; font-size:16px; transition: 0.3s;}
-                    button:hover{background:#219653;}
+                    .reason-inc { color: #e67e22; font-weight: bold; }
                     .stats-box { background: white; padding: 20px; border-left: 5px solid #e74c3c; margin-bottom: 20px; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
                     .stats-box ul { list-style-type: none; padding-left: 0; margin-bottom: 0; }
                     .stats-box li { margin-bottom: 8px; font-size: 15px; }
                     .big-num { font-size: 18px; font-weight: bold; color: #2c3e50; }
                 </style>
-                <script>
-                    setInterval(() => {
-                        if (!window.opener || window.opener.closed) {
-                            document.body.innerHTML = "<div style='display:flex; height:100vh; align-items:center; justify-content:center; text-align:center;'><div style='background:white; padding:40px; border-radius:8px; box-shadow:0 4px 15px rgba(0,0,0,0.2);'><h2 style='color:#c0392b;'>🔒 Mesure de Sécurité Activée</h2><p>L'application principale a été fermée ou déconnectée.<br>Par mesure de confidentialité (Zero Trust), ce rapport a été neutralisé.</p></div></div>";
-                        }
-                    }, 1000);
-                ${'</sc' + 'ript>'}
+                <script>setInterval(() => { if (!window.opener || window.opener.closed) document.body.innerHTML = "<h2 style='color:#c0392b;'>🔒 Mesure de Sécurité (Zero Trust) activée.</h2>"; }, 1000);${'</sc' + 'ript>'}
                 </head><body>
                 <h2>⚠️ Audit de Sécurité : Synthèse des exclusions</h2>
-                
                 <div class="stats-box">
                     <strong>📊 Statistiques du filtrage :</strong>
                     <ul>
                         <li>Total des fichiers ignorés : <span class="big-num">${ignoredFiles.length}</span></li>
-                        <li>Fichiers "copiables" bloqués par sécurité (.url, .ini, système) : <span class="big-num" style="color:#c0392b">${countSecurity}</span></li>
-                        <li>Documents virtuels Cloud (Google Docs/Sheets/Slides) : <span class="big-num" style="color:#8e44ad">${countCloud}</span></li>
+                        <li>Fichiers restreints par sécurité (.url, système) : <span class="big-num" style="color:#c0392b">${countSecurity}</span></li>
+                        <li>Documents virtuels Cloud (Google Docs/Sheets) : <span class="big-num" style="color:#8e44ad">${countCloud}</span></li>
+                        <li>Noms de fichiers incompatibles (Caractères interdits) : <span class="big-num" style="color:#e67e22">${countIncompatible}</span></li>
                     </ul>
                 </div>
-
-                <a href="${url}" download="SyncDrive_Audit_Ignores_v1.5.3.csv"><button>📥 Télécharger le fichier CSV</button></a>
-                
-                <table>
-                    <tr><th>Emplacement</th><th>Chemin</th><th>Fichier</th><th>Poids (Ko)</th><th>Dernière Modif.</th><th>Motif d'exclusion</th></tr>
-                    ${ignoredFiles.map(f => `<tr><td>${f.source}</td><td>${f.fullPath}</td><td>${f.name}</td><td>${f.size ? (f.size/1024).toFixed(2) : "0.00"}</td><td>${new Date(f.modifiedTime || f.lastModified).toLocaleString('fr-FR')}</td><td><span class="${f.reason.includes('Cloud') ? 'reason-cloud' : 'reason-sec'}">${f.reason}</span></td></tr>`).join('')}
+                <a href="${url}" download="SyncDrive_Quarantaine_v1.6.1.csv"><button style="padding:10px; background:#27ae60; color:white; border:none; border-radius:4px; font-weight:bold; cursor:pointer; margin-bottom:20px;">📥 Télécharger le fichier CSV</button></a>
+                <table><tr><th>Emplacement</th><th>Chemin</th><th>Fichier</th><th>Poids (Ko)</th><th>Dernière Modif.</th><th>Motif</th></tr>
+                ${ignoredFiles.map(f => `<tr><td>${f.source}</td><td>${escapeHTML(f.fullPath)}</td><td>${escapeHTML(f.name)}</td><td>${f.size ? (f.size/1024).toFixed(2) : "0.00"}</td><td>${new Date(f.modifiedTime || f.lastModified).toLocaleString('fr-FR')}</td><td><span class="${f.reason.includes('Cloud') ? 'reason-cloud' : f.reason.includes('incompatible') ? 'reason-inc' : 'reason-sec'}">${f.reason}</span></td></tr>`).join('')}
                 </table></body></html>
             `);
             newWindow.document.close();
+        }
+
+        function downloadErrorCSV() {
+            if (syncErrors.length === 0) return;
+            log("Génération du rapport d'erreurs en cours...", "PROCESS");
+            const bom = "\uFEFF";
+            let csvContent = "Date de l'erreur|Nom du Fichier|Chemin Cible|Motif de l'erreur\n";
+            syncErrors.forEach(err => { csvContent += `${err.date}|${err.file}|${err.path}|${err.error}\n`; });
+            const blob = new Blob([bom + csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a'); a.href = url; a.download = "SyncDrive_Log_Erreurs.csv";
+            document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
         }
 
         // --- AUTHENTIFICATION ---
@@ -360,17 +478,7 @@
             document.getElementById('btnPicker').disabled = false; log("Connexion sécurisée établie.", "SUCCESS"); 
         }}); }
         function handleAuthClick() { tokenClient.requestAccessToken(); }
-        
-        function handleRevokeClick() {
-            if (accessToken) {
-                google.accounts.oauth2.revoke(accessToken, () => {
-                    accessToken = null; isConnected = false;
-                    document.getElementById('connStatus').className = "status-dot"; document.getElementById('connStatus').title = "Déconnecté";
-                    document.getElementById('btnAuth').style.display = 'inline-block'; document.getElementById('btnRevoke').style.display = 'none';
-                    document.getElementById('btnPicker').disabled = true; resetApp(); log("Déconnexion réussie. Jeton révoqué.", "SUCCESS");
-                });
-            }
-        }
+        function handleRevokeClick() { if (accessToken) { google.accounts.oauth2.revoke(accessToken, () => { accessToken = null; isConnected = false; document.getElementById('connStatus').className = "status-dot"; document.getElementById('btnAuth').style.display = 'inline-block'; document.getElementById('btnRevoke').style.display = 'none'; document.getElementById('btnPicker').disabled = true; resetApp(); log("Déconnexion réussie.", "SUCCESS"); }); } }
     </script>
 </body>
 </html>
