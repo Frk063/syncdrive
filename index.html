@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <title>SyncDrive Pro v1.6.3 - Synchro Puriste</title>
+    <title>SyncDrive Pro v1.6.4 - Édition Master</title>
     <style>
         :root { --primary: #2c3e50; --error: #c0392b; --success: #27ae60; --warning: #f39c12; --info: #2980b9; --purple: #8e44ad; }
         body { font-family: 'Segoe UI', sans-serif; margin: 20px; background: #f4f7f6; color: var(--primary); }
@@ -41,7 +41,7 @@
 </head>
 <body>
 
-    <h2><span id="connStatus" class="status-dot" title="Déconnecté"></span> 📦 SyncDrive Pro <small>v1.6.3</small></h2>
+    <h2><span id="connStatus" class="status-dot" title="Déconnecté"></span> 📦 SyncDrive Pro <small>v1.6.4</small></h2>
     
     <div id="setup">
         <strong>1. Connexion & Sélection :</strong><br>
@@ -51,7 +51,7 @@
         <button class="btn-blue" onclick="initLocalScan()">💾 3. Choisir Dossier Local</button>
         <button class="btn-orange" onclick="resetApp()" style="float: right;">🔄 Réinitialiser</button>
 
-        <span class="info-text">ℹ️ <strong>Filtrage Actif :</strong> Fichiers système, Google Docs virtuels, et noms incompatibles sont exclus par sécurité.</span>
+        <span class="info-text">ℹ️ <strong>Filtrage Actif :</strong> Fichiers système, Google Docs virtuels, rapports CSV et noms incompatibles sont exclus.</span>
 
         <table class="routing-table">
             <tr><th>☁️ Source (Google Drive)</th><th>💾 Cible (Disque Local)</th></tr>
@@ -69,7 +69,7 @@
         <strong>🗑️ Corbeille de Sécurité :</strong><br>
         <span class="info-text" style="color:#2c3e50; margin-top:5px; margin-bottom:5px;">
             Pour garantir un clone parfait, les fichiers absents du Cloud (Orphelins) sont retirés de l'arborescence locale.<br> 
-            Ils ne sont pas supprimés définitivement, mais déplacés dans un dossier caché <code>_SyncDrive_Archives</code> pour éviter toute perte de données accidentelle.
+            Ils ne sont pas supprimés définitivement, mais déplacés dans un dossier caché <code>_SyncDrive_Archives</code>.
         </span>
     </div>
 
@@ -127,6 +127,9 @@
 
         const BLOCKLIST = ['.url', '.lnk', '.ini', '.desktop', '.ds_store', 'thumbs.db', '_syncdrive_archives'];
 
+        // v1.6.4 : Regex pour détecter les fuites de mémoire (fichiers UUID de Chrome OS)
+        const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.csv$/i;
+
         function escapeHTML(str) {
             if (!str) return "";
             return str.replace(/[&<>'"]/g, tag => ({
@@ -158,6 +161,10 @@
             const nameLower = fileName.toLowerCase();
             if (fileName.startsWith('.') && fileName.length > 1) return true;
             for (let ext of BLOCKLIST) { if (nameLower.endsWith(ext) || nameLower === ext) return true; }
+            
+            // Auto-exclusion des rapports de l'application
+            if (nameLower.startsWith('syncdrive_')) return true;
+
             return false;
         }
 
@@ -258,7 +265,7 @@
                             fileObj.source = 'CLOUD'; 
                             if (isGoogleDoc) fileObj.reason = "Document Cloud (Non copiable)";
                             else if (isIncompatible) fileObj.reason = "Nom de fichier incompatible";
-                            else fileObj.reason = "Sécurité (Fichier restreint)";
+                            else fileObj.reason = "Sécurité (Fichier restreint / Auto-exclu)";
                             ignoredFiles.push(fileObj);
                         } else {
                             driveFiles.push({ id: f.id, ...fileObj });
@@ -305,11 +312,32 @@
             try {
                 for await (const entry of dirHandle.values()) {
                     const fullPath = currentPath === "" ? entry.name : `${currentPath}/${entry.name}`;
+                    
                     if (entry.kind === 'file') {
-                        const fileData = await entry.getFile();
-                        const fileObj = { name: entry.name, fullPath: fullPath, size: fileData.size, lastModified: fileData.lastModified, fileHandle: entry, parentDirHandle: dirHandle };
-                        
+                        const nameLower = entry.name.toLowerCase();
+
+                        // v1.6.4 : Le Démineur (Analyse d'ADN du fichier fantôme)
+                        if (UUID_REGEX.test(nameLower)) {
+                            try {
+                                const fileData = await entry.getFile();
+                                const slice = fileData.slice(0, 150); // Lecture ultra-rapide des 150 premiers octets
+                                const header = await slice.text();
+                                
+                                const isOurGhost = header.includes("Emplacement|Chemin") || 
+                                                   header.includes("Date de l'erreur|") || 
+                                                   header.includes("Date d'archivage|");
+
+                                if (isOurGhost) {
+                                    await dirHandle.removeEntry(entry.name);
+                                    log(`[CLEANUP] Fichier fantôme ChromeOS purgé : ${entry.name}`, "WARNING");
+                                    continue; // Le fichier est détruit, on passe au suivant
+                                }
+                            } catch(err) { /* Ignoré si verrouillé par l'OS */ }
+                        }
+
                         if (!isFileIgnored(entry.name)) {
+                            const fileData = await entry.getFile();
+                            const fileObj = { name: entry.name, fullPath: fullPath, size: fileData.size, lastModified: fileData.lastModified, fileHandle: entry, parentDirHandle: dirHandle };
                             localFiles.push(fileObj);
                         }
                     } else if (entry.kind === 'directory') {
@@ -362,7 +390,7 @@
             syncErrors = []; archiveLogs = [];
             document.getElementById('btnSync').disabled = true;
             document.getElementById('btnSimul').disabled = true;
-            document.getElementById('btnEmptyArchive').style.display = 'none'; // Caché pendant la synchro
+            document.getElementById('btnEmptyArchive').style.display = 'none'; 
             document.getElementById('btnErrorLog').style.display = 'none';
             document.getElementById('btnArchiveLog').style.display = 'none';
 
@@ -371,7 +399,6 @@
 
             let countSuccess = 0; let countArchived = 0;
 
-            // 1. TÉLÉCHARGEMENTS ET MISES À JOUR
             const filesToDownload = globalToDownload.concat(globalToUpdate);
             for (let i = 0; i < filesToDownload.length; i++) {
                 const f = filesToDownload[i];
@@ -395,7 +422,6 @@
                 }
             }
 
-            // 2. ARCHIVAGE DES ORPHELINS (La Purge)
             if (globalOrphans.length > 0) {
                 log(`--- ARCHIVAGE DES ORPHELINS (${globalOrphans.length}) ---`, "WARNING");
                 try {
@@ -439,7 +465,7 @@
             localFiles = [];
             await scanLocalRecursive(localRootDirHandle, localRootDirHandle.name);
             renderPaneSafe('pane-local', localFiles);
-            await checkArchiveExists(); // Rafraîchit l'affichage du bouton balai
+            await checkArchiveExists(); 
             runSimulation(); 
         }
 
@@ -452,20 +478,21 @@
                     log("Suppression du dossier d'archives...", "WARNING");
                     await localRootDirHandle.removeEntry('_SyncDrive_Archives', { recursive: true });
                     log("Archive purgée avec succès.", "SUCCESS");
-                    await checkArchiveExists(); // Cachera le bouton
+                    await checkArchiveExists(); 
                 } catch(err) {
                     log(`Échec de la suppression : ${err.message}`, "ERROR");
                 }
             }
         }
 
-        // --- EXPORTS CSV ---
+        // --- EXPORTS CSV (Délai de sécurité pour le nommage Chrome OS) ---
         function downloadErrorCSV() {
             if (syncErrors.length === 0) return;
             const bom = "\uFEFF"; let csvContent = "Date de l'erreur|Nom du Fichier|Chemin Cible|Motif de l'erreur\n";
             syncErrors.forEach(err => { csvContent += `${err.date}|${err.file}|${err.path}|${err.error}\n`; });
             const blob = new Blob([bom + csvContent], { type: 'text/csv;charset=utf-8;' });
-            const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = "SyncDrive_Log_Erreurs.csv"; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+            const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = "SyncDrive_Log_Erreurs.csv"; document.body.appendChild(a); a.click(); document.body.removeChild(a); 
+            setTimeout(() => URL.revokeObjectURL(url), 2000);
         }
 
         function downloadArchiveCSV() {
@@ -473,7 +500,8 @@
             const bom = "\uFEFF"; let csvContent = "Date d'archivage|Fichier Orphelin|Ancien Chemin|Statut\n";
             archiveLogs.forEach(log => { csvContent += `${log.date}|${log.file}|${log.path}|${log.status}\n`; });
             const blob = new Blob([bom + csvContent], { type: 'text/csv;charset=utf-8;' });
-            const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = "SyncDrive_Log_Suppressions.csv"; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+            const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = "SyncDrive_Log_Suppressions.csv"; document.body.appendChild(a); a.click(); document.body.removeChild(a); 
+            setTimeout(() => URL.revokeObjectURL(url), 2000);
         }
 
         // --- QUARANTAINE (Existant) ---
