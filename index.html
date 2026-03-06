@@ -29,7 +29,7 @@
         .btn-red { background: var(--error); color: white; }
         .btn-purple { background: var(--purple); color: white; }
         
-        select.direction-select { padding: 10px; font-size: 14px; font-weight: bold; border-radius: 4px; border: 2px solid var(--purple); background: #f9f9f9; cursor: pointer; }
+        select.direction-select { padding: 10px; font-size: 14px; font-weight: bold; border-radius: 4px; border: 2px solid var(--purple); background: #f9f9f9; cursor: pointer; width: 100%; max-width: 500px; }
         
         #customPicker { display: none; margin-top: 15px; padding: 15px; background: #e8f4f8; border: 1px solid var(--info); border-radius: 4px; }
         select.folder-select { padding: 8px; width: 100%; max-width: 400px; margin-top: 5px; margin-bottom: 10px; border-radius: 4px; border: 1px solid #bdc3c7; }
@@ -38,8 +38,6 @@
         .routing-table { width: 100%; margin-top: 15px; border-collapse: collapse; text-align: left; font-size: 14px; }
         .routing-table th { padding: 8px; border: 1px solid #bdc3c7; background: #ecf0f1; width: 50%; }
         .routing-table td { padding: 8px; border: 1px solid #bdc3c7; color: var(--info); font-weight: bold; }
-        
-        .info-text { font-size: 0.85em; color: #7f8c8d; font-style: italic; margin-top: 10px; display: block; }
     </style>
 </head>
 <body>
@@ -69,8 +67,8 @@
     <div class="panel" id="controls">
         <strong>2. Sens de Synchronisation & Exécution :</strong><br><br>
         <select id="syncDirection" class="direction-select" onchange="runSimulation()" disabled>
-            <option value="C2L">⬇️ CLOUD vers LOCAL (Télécharger & Cloner)</option>
-            <option value="L2C">⬆️ LOCAL vers CLOUD (Sauvegarder & Écraser)</option>
+            <option value="L2C">⬆️ LOCAL vers CLOUD (Sauvegarder & Écraser sur Drive)</option>
+            <option value="C2L">⬇️ CLOUD vers LOCAL (Télécharger & Cloner sur PC)</option>
         </select>
         <br><br>
         <button id="btnSimul" class="btn-blue" onclick="runSimulation()" disabled>📋 1. Lancer la Simulation</button>
@@ -88,8 +86,6 @@
     <div style="display:flex; justify-content:space-between; align-items:flex-end; margin-top:20px;">
         <strong style="font-size: 14px;">🖥️ Console d'Activité :</strong>
         <div>
-            <button id="btnEmptyArchive" class="btn-red" onclick="emptyArchive()" style="display:none; margin:0 5px 0 0;">🧹 Vider l'Archive Locale</button>
-            <button id="btnArchiveLog" class="btn-orange" onclick="downloadArchiveCSV()" style="display:none; margin:0 5px 0 0;">📥 Registre des suppressions (CSV)</button>
             <button id="btnErrorLog" class="btn-red" onclick="downloadErrorCSV()" style="display:none; margin:0;">📥 Log d'Erreurs (CSV)</button>
         </div>
     </div>
@@ -275,8 +271,9 @@
             }
         }
 
+        // --- CORRECTION CLÉ : DEVERROUILLAGE SANS COMPTER LES FICHIERS ---
         function checkActivation() {
-            if(driveFiles.length >= 0 && localFiles.length > 0 && targetFolderId && localRootDirHandle) {
+            if (targetFolderId !== null && localRootDirHandle !== null) {
                 document.getElementById('btnSimul').disabled = false;
                 document.getElementById('syncDirection').disabled = false;
                 runSimulation();
@@ -413,7 +410,7 @@
                             log(`[DL] ${f.name}...`, "PROCESS");
                             const res = await fetch(`https://www.googleapis.com/drive/v3/files/${f.id}?alt=media`, { headers: { 'Authorization': `Bearer ${accessToken}` } });
                             if (!res.ok) throw new Error("Accès refusé");
-                            // Simplification: Sauvegarde locale basique
+                            // Sauvegarde locale basique (Simplifiée pour l'instant)
                             const root = localRootDirHandle;
                             const newFile = await root.getFileHandle(f.name, {create: true});
                             const writable = await newFile.createWritable();
@@ -460,6 +457,14 @@
             log("Rafraîchissement des panneaux...", "PROCESS");
             if(direction === 'L2C') await confirmFolderSelection(); // Re-scan Drive
             else await initLocalScan(); // Re-scan Local
+        }
+
+        function downloadErrorCSV() {
+            if (syncErrors.length === 0) return;
+            const bom = "\uFEFF"; let csvContent = "Nom du Fichier|Erreur\n";
+            syncErrors.forEach(err => { csvContent += `${err.file}|${err.err}\n`; });
+            const blob = new Blob([bom + csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = "SyncDrive_Log_Erreurs.csv"; document.body.appendChild(a); a.click(); document.body.removeChild(a); 
         }
 
         // --- AUTHENTIFICATION ---
