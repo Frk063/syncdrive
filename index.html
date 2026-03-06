@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <title>SyncDrive Pro v1.7.3 - Modulaire & Sécurisé</title>
+    <title>SyncDrive Pro v1.7.6 - Master QA</title>
     <style>
         :root { --primary: #2c3e50; --error: #c0392b; --success: #27ae60; --warning: #f39c12; --info: #2980b9; --purple: #8e44ad; }
         body { font-family: 'Segoe UI', sans-serif; margin: 20px; background: #f4f7f6; color: var(--primary); }
@@ -37,19 +37,24 @@
         .routing-table { width: 100%; margin-top: 15px; border-collapse: collapse; text-align: left; font-size: 14px; }
         .routing-table th { padding: 8px; border: 1px solid #bdc3c7; background: #ecf0f1; width: 50%; }
         .routing-table td { padding: 8px; border: 1px solid #bdc3c7; color: var(--info); font-weight: bold; }
+
+        .help-box { background: #e8f4f8; border-left: 4px solid var(--info); padding: 12px 15px; margin: 15px 0; font-size: 13px; line-height: 1.5; border-radius: 0 4px 4px 0; }
+        .help-box ul { margin: 5px 0 0 0; padding-left: 20px; }
+        .help-box li { margin-bottom: 4px; }
+        .code-inline { background: #fff; border: 1px solid #bdc3c7; padding: 1px 4px; border-radius: 3px; font-family: monospace; color: #c0392b; }
     </style>
 </head>
 <body>
 
-    <h2><span id="connStatus" class="status-dot" title="Déconnecté"></span> 📦 SyncDrive Pro <small>v1.7.3</small></h2>
+    <h2><span id="connStatus" class="status-dot" title="Déconnecté"></span> 📦 SyncDrive Pro <small>v1.7.6</small></h2>
     
     <div class="panel">
-        <strong>1. Connexion & Sélection :</strong><br>
+        <strong>ÉTAPE 1 : Connexion & Sélection des cibles</strong><br>
         <button id="btnAuth" class="btn-blue" onclick="handleAuthClick()">🔑 1. Connexion Google</button>
         <button id="btnRevoke" class="btn-red" onclick="handleRevokeClick()" style="display:none;">🔴 Déconnexion</button>
         <button id="btnPicker" class="btn-blue" onclick="loadDriveFolders()" disabled>📁 2. Choisir Dossier Cloud</button>
         <button class="btn-blue" onclick="initLocalScan()">💾 3. Choisir Dossier Local</button>
-        <button class="btn-orange" onclick="resetApp()" style="float: right;">🔄 Réinitialiser</button>
+        <button class="btn-orange" onclick="resetApp()" style="float: right;">🔄 Réinitialiser la session</button>
 
         <table class="routing-table">
             <tr><th>☁️ Source (Google Drive)</th><th>💾 Cible (Disque Local)</th></tr>
@@ -64,12 +69,20 @@
     </div>
 
     <div class="panel" id="controls">
-        <strong>2. Sens de Synchronisation & Exécution :</strong><br><br>
+        <strong>ÉTAPE 2 : Configuration & Exécution</strong><br><br>
         <select id="syncDirection" class="direction-select" onchange="runSimulation()" disabled>
-            <option value="L2C">⬆️ LOCAL vers CLOUD (Sauvegarder & Écraser sur Drive)</option>
+            <option value="L2C">⬆️ LOCAL vers CLOUD (Envoyer & Écraser sur Drive)</option>
             <option value="C2L">⬇️ CLOUD vers LOCAL (Télécharger & Cloner sur PC)</option>
         </select>
-        <br><br>
+        
+        <div class="help-box" id="helpBox">
+            <strong>📋 Règles de Synchronisation & Sécurité :</strong>
+            <ul>
+                <li><strong>Fichiers ignorés :</strong> Le système ignore systématiquement les fichiers cachés (commençant par un point) et les formats non sécurisés ou temporaires (<span class="code-inline">.url, .lnk, .ini, .desktop, .ds_store, thumbs.db</span>).</li>
+                <li id="helpTextSafety"><strong>En cas d'écrasement ou suppression :</strong> Les fichiers effacés sur le Drive sont envoyés dans la <b>Corbeille Google</b>. L'historique des modifications est géré par Google Drive.</li>
+            </ul>
+        </div>
+
         <button id="btnSimul" class="btn-blue" onclick="runSimulation()" disabled>📋 1. Lancer la Simulation</button>
         <button id="btnSync" class="btn-purple" onclick="executeSync()" disabled>🔥 2. Exécuter la Synchronisation</button>
         <br><br>
@@ -82,7 +95,7 @@
     </div>
 
     <div style="display:flex; justify-content:space-between; align-items:flex-end; margin-top:20px;">
-        <strong style="font-size: 14px;">🛡️ Module de Sécurité & Logs :</strong>
+        <strong style="font-size: 14px;">🛡️ Tableau de Bord - Sécurité & Logs :</strong>
         <div>
             <button id="btnReport" class="btn-orange" onclick="SecurityModule.exportQuarantine()" style="display:none; margin:0 5px 0 0;">⚠️ Quarantaine (CSV)</button>
             <button id="btnArchiveLog" class="btn-blue" onclick="SecurityModule.exportArchives()" style="display:none; margin:0 5px 0 0;">📥 Registre Archives (CSV)</button>
@@ -119,17 +132,14 @@
         const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.csv$/i;
 
         // ============================================================================
-        // 🛡️ MODULE DE SÉCURITÉ, ISOLATION ET LOGS (Nouveauté v1.7.3)
+        // 🛡️ MODULE DE SÉCURITÉ, ISOLATION ET LOGS
         // ============================================================================
         const SecurityModule = {
-            quarantine: [],
-            errors: [],
-            archives: [],
+            quarantine: [], errors: [], archives: [],
 
             reset: function() { this.quarantine = []; this.errors = []; this.archives = []; this.updateUI(); },
             
-            logIgnored: function(file, path, source, reason="Format proscrit") {
-                // Eviter les doublons lors des re-scans
+            logIgnored: function(file, path, source, reason="Format proscrit/Caché") {
                 if (!this.quarantine.some(q => q.path === path && q.source === source)) {
                     this.quarantine.push({ file, path, source, reason });
                 }
@@ -137,7 +147,6 @@
             },
             
             logError: function(file, msg) { this.errors.push({ file, msg }); this.updateUI(); },
-            
             logArchive: function(oldPath, newName) { this.archives.push({ oldPath, newName }); this.updateUI(); },
 
             updateUI: function() {
@@ -161,7 +170,6 @@
             exportErrors: function() { this.generateCSV("SyncDrive_Erreurs.csv", "FICHIER|ERREUR", this.errors, e => `"${e.file}"|${e.msg}`); },
             exportArchives: function() { this.generateCSV("SyncDrive_Registre_Archives.csv", "FICHIER_ORIGINAL|NOM_ARCHIVE", this.archives, a => `"${a.oldPath}"|"${a.newName}"`); },
 
-            // Isolation Locale (C2L uniquement)
             isolateLocalFile: async function(fileObj) {
                 try {
                     const archiveDir = await localRootDirHandle.getDirectoryHandle('_syncdrive_archives', { create: true });
@@ -171,8 +179,7 @@
                     const newName = `${fileObj.name}_ARCHIVED_${ts}`;
                     const newFile = await archiveDir.getFileHandle(newName, { create: true });
                     const writable = await newFile.createWritable();
-                    await writable.write(fileData);
-                    await writable.close();
+                    await writable.write(fileData); await writable.close();
                     await fileObj.parentDirHandle.removeEntry(fileObj.name);
                     this.logArchive(fileObj.fullPath, newName);
                     log(`[ISOLATION] Fichier local mis en sécurité : ${newName}`, "PROCESS");
@@ -184,12 +191,11 @@
                 try {
                     await localRootDirHandle.removeEntry('_syncdrive_archives', { recursive: true });
                     this.archives = []; this.updateUI(); log("Archive locale purgée avec succès.", "SUCCESS");
-                } catch(e) { log("Erreur purge archive.", "ERROR"); this.logError("_syncdrive_archives", "Impossible de purger le dossier"); }
+                } catch(e) { log("Erreur purge archive.", "ERROR"); this.logError("_syncdrive_archives", "Impossible de purger"); }
             }
         };
-        // ============================================================================
 
-        window.onload = () => { resetApp(); log("Moteur initialisé. Module de sécurité armé.", "SYSTEM"); };
+        window.onload = () => { resetApp(); log("Moteur initialisé. Pre-flight checks actifs. (v1.7.6)", "SYSTEM"); };
 
         function escapeHTML(str) { return !str ? "" : str.replace(/[&<>'"]/g, tag => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'}[tag])); }
         function log(msg, type='INFO') {
@@ -225,8 +231,7 @@
             }); container.appendChild(fragment);
         }
 
-        // --- MOTEURS D'EXPLORATION ---
-        async function loadDriveFolders() {
+        async function loadDriveFolders() { /* ... */
             log("Interrogation du Drive...", "PROCESS");
             try {
                 let allFolders = []; let pageToken = null;
@@ -280,42 +285,79 @@
                 if (entry.kind === 'file') {
                     if (UUID_REGEX.test(entry.name)) { try { await dirHandle.removeEntry(entry.name); continue; } catch(e){} }
                     if (isFileIgnored(entry.name)) { SecurityModule.logIgnored(entry.name, fullPath, 'Local'); } 
-                    else { const fileData = await entry.getFile(); localFiles.push({ name: entry.name, fullPath: fullPath, size: fileData.size, lastModified: fileData.lastModified, fileHandle: entry, parentDirHandle: dirHandle }); }
+                    else { const fileData = await entry.getFile(); localFiles.push({ name: entry.name, fullPath: fullPath, size: fileData.size || 0, lastModified: fileData.lastModified, fileHandle: entry, parentDirHandle: dirHandle }); }
                 } else if (entry.kind === 'directory') { if (!isFileIgnored(entry.name)) await scanLocalRecursive(entry, fullPath); }
             }
         }
 
         function checkActivation() { if (targetFolderId !== null && localRootDirHandle !== null) { document.getElementById('btnSimul').disabled = false; document.getElementById('syncDirection').disabled = false; runSimulation(); } }
 
-        // --- SIMULATION ---
+        // --- SIMULATION & PRE-FLIGHT CHECK (NOUVEAU v1.7.6) ---
         let globalActions = { download: [], upload: [], updateLoc: [], updateCloud: [], orphanLoc: [], orphanCloud: [] };
 
-        function runSimulation() {
+        async function runSimulation() {
             log("--- DÉBUT SIMULATION ---", "SIMUL");
-            globalActions = { download: [], upload: [], updateLoc: [], updateCloud: [], orphanLoc: [], orphanCloud: [] }; let identical = 0;
+            document.getElementById('btnSync').disabled = true; // Sécurité le temps du calcul
+            globalActions = { download: [], upload: [], updateLoc: [], updateCloud: [], orphanLoc: [], orphanCloud: [] }; 
+            let identical = 0; let totalDLSize = 0; let totalUpSize = 0;
+            
             const direction = document.getElementById('syncDirection').value;
+            const helpText = document.getElementById('helpTextSafety');
             
             if (direction === 'C2L') {
+                helpText.innerHTML = "<strong>En cas d'écrasement ou suppression :</strong> Les fichiers de votre PC seront préalablement sauvegardés dans le dossier <code>_syncdrive_archives</code> avant d'être modifiés.";
                 driveFiles.forEach(c => {
                     const l = localFiles.find(lf => lf.fullPath === c.fullPath);
-                    if (!l) globalActions.download.push(c);
-                    else if (c.modifiedTime > (l.lastModified + 2000)) globalActions.updateLoc.push(c);
+                    if (!l) { globalActions.download.push(c); totalDLSize += c.size; }
+                    else if (c.modifiedTime > (l.lastModified + 2000)) { globalActions.updateLoc.push(c); totalDLSize += c.size; }
                     else identical++;
                 });
                 localFiles.forEach(l => { if (!driveFiles.find(df => df.fullPath === l.fullPath)) globalActions.orphanLoc.push(l); });
-                document.getElementById('diffStats').innerHTML = `<span style="color:var(--purple)">⬇️ ${globalActions.download.length} DL</span> | <span style="color:var(--info)">🔄 ${globalActions.updateLoc.length} MàJ Locales</span> | <span style="color:var(--warning)">⚠️ ${globalActions.orphanLoc.length} Orphelins Locaux</span> | <span style="color:var(--success)">✅ ${identical} Identiques</span>`;
+                document.getElementById('diffStats').innerHTML = `<span style="color:var(--purple)">⬇️ ${globalActions.download.length} Téléchargements</span> | <span style="color:var(--info)">🔄 ${globalActions.updateLoc.length} MàJ Locales</span> | <span style="color:var(--warning)">⚠️ ${globalActions.orphanLoc.length} Orphelins Locaux</span> | <span style="color:var(--success)">✅ ${identical} Identiques</span>`;
             } else {
+                helpText.innerHTML = "<strong>En cas d'écrasement ou suppression :</strong> Les fichiers effacés sur le Drive sont envoyés dans la <b>Corbeille Google</b>. L'historique des modifications est géré par Google Drive.";
                 localFiles.forEach(l => {
                     const c = driveFiles.find(df => df.fullPath === l.fullPath);
-                    if (!c) globalActions.upload.push(l);
-                    else if (l.lastModified > (c.modifiedTime + 2000)) globalActions.updateCloud.push({local: l, cloudId: c.id});
+                    if (!c) { globalActions.upload.push(l); totalUpSize += l.size; }
+                    else if (l.lastModified > (c.modifiedTime + 2000)) { globalActions.updateCloud.push({local: l, cloudId: c.id}); totalUpSize += l.size; }
                     else identical++;
                 });
                 driveFiles.forEach(c => { if (!localFiles.find(lf => lf.fullPath === c.fullPath)) globalActions.orphanCloud.push(c); });
-                document.getElementById('diffStats').innerHTML = `<span style="color:var(--purple)">⬆️ ${globalActions.upload.length} Uploads</span> | <span style="color:var(--info)">🔄 ${globalActions.updateCloud.length} MàJ Cloud</span> | <span style="color:var(--warning)">🗑️ ${globalActions.orphanCloud.length} Corbeille Cloud</span> | <span style="color:var(--success)">✅ ${identical} Identiques</span>`;
+                document.getElementById('diffStats').innerHTML = `<span style="color:var(--purple)">⬆️ ${globalActions.upload.length} Envois (Uploads)</span> | <span style="color:var(--info)">🔄 ${globalActions.updateCloud.length} MàJ Cloud</span> | <span style="color:var(--warning)">🗑️ ${globalActions.orphanCloud.length} Corbeille Cloud</span> | <span style="color:var(--success)">✅ ${identical} Identiques</span>`;
             }
+            
             const totalAction = Object.values(globalActions).reduce((acc, val) => acc + val.length, 0);
-            document.getElementById('btnSync').disabled = (totalAction === 0); log(`Simulation terminée. ${totalAction} action(s).`, "SUCCESS");
+            
+            if (totalAction > 0) {
+                if (direction === 'C2L') {
+                    const reqSpaceMB = ((totalDLSize * 2.15) / (1024 * 1024)).toFixed(2);
+                    log(`[PRE-FLIGHT] Espace local requis : ${reqSpaceMB} Mo (Marge de sécurité 2.15x incluse). Assurez-vous d'avoir cet espace libre.`, "WARNING");
+                    document.getElementById('btnSync').disabled = false;
+                } else {
+                    const reqSpaceMB = ((totalUpSize * 1.15) / (1024 * 1024)).toFixed(2);
+                    log(`[PRE-FLIGHT] Vérification de l'espace sur Google Drive...`, "PROCESS");
+                    try {
+                        const aboutRes = await gapi.client.drive.about.get({fields: 'storageQuota'});
+                        const quota = aboutRes.result.storageQuota;
+                        let hasSpace = true;
+                        if (quota.limit) {
+                            const freeSpace = parseInt(quota.limit) - parseInt(quota.usageInDrive || quota.usage);
+                            if ((totalUpSize * 1.15) > freeSpace) hasSpace = false;
+                        }
+                        if (!hasSpace) {
+                            log(`❌ [ERREUR BLOQUANTE] Espace Google Drive insuffisant. Requis : ${reqSpaceMB} Mo.`, "ERROR");
+                            SecurityModule.logError("PRE_FLIGHT_CHECK", "Espace Drive insuffisant pour procéder à l'Upload.");
+                        } else {
+                            log(`✅ [PRE-FLIGHT] Espace Drive validé. Requis : ${reqSpaceMB} Mo.`, "SUCCESS");
+                            document.getElementById('btnSync').disabled = false;
+                        }
+                    } catch (err) {
+                        log(`⚠️ [WARNING] Impossible de valider le quota Drive. Requis estimé: ${reqSpaceMB} Mo. Vous pouvez forcer l'exécution.`, "WARNING");
+                        document.getElementById('btnSync').disabled = false;
+                    }
+                }
+            }
+            log(`Simulation terminée. ${totalAction} action(s) en attente.`, "SUCCESS");
         }
 
         // --- MOTEUR D'ÉCRITURE ---
@@ -344,7 +386,7 @@
                 const metaData = await metaRes.json(); existingFileId = metaData.id;
             }
             const uploadRes = await fetch(`https://www.googleapis.com/upload/drive/v3/files/${existingFileId}?uploadType=media`, { method: 'PATCH', headers: { 'Authorization': 'Bearer ' + accessToken, 'Content-Type': fileData.type || 'application/octet-stream' }, body: fileData });
-            if (!uploadRes.ok) throw new Error("Échec de l'écriture binaire (API Media)");
+            if (!uploadRes.ok) throw new Error("Échec de l'écriture binaire");
         }
 
         async function executeSync() {
@@ -353,23 +395,19 @@
 
             try {
                 if (direction === 'C2L') {
-                    // ISOLATION LOCALE (Fichiers qui vont être écrasés ou supprimés)
                     for (let item of globalActions.updateLoc) { const localEquiv = localFiles.find(lf => lf.fullPath === item.fullPath); if (localEquiv) await SecurityModule.isolateLocalFile(localEquiv); }
                     for (let item of globalActions.orphanLoc) { await SecurityModule.isolateLocalFile(item); }
-
-                    // TÉLÉCHARGEMENT
                     const filesToDL = globalActions.download.concat(globalActions.updateLoc);
                     for (let f of filesToDL) {
                         try {
                             log(`[DL] ${f.name}...`, "PROCESS");
                             const res = await fetch(`https://www.googleapis.com/drive/v3/files/${f.id}?alt=media`, { headers: { 'Authorization': `Bearer ${accessToken}` } });
-                            if (!res.ok) throw new Error("Accès refusé ou fichier indisponible");
+                            if (!res.ok) throw new Error("Accès refusé");
                             const newFile = await localRootDirHandle.getFileHandle(f.name, {create: true});
                             const writable = await newFile.createWritable(); await res.body.pipeTo(writable);
                         } catch(e) { log(`Erreur DL ${f.name}`, "ERROR"); SecurityModule.logError(f.name, e.message); }
                     }
                 } else {
-                    // L2C (Isolation Cloud gérée par Google Drive nativement)
                     driveDirectoryCache = {}; 
                     for (let f of globalActions.upload) {
                         try { log(`[UPLOAD] Envoi de ${f.name}...`, "PROCESS"); await uploadToDrive(f); } 
